@@ -1,0 +1,4 @@
+[[package]]
+name = "nbd-proxy-rs"
+version = "0.1.0"
+
