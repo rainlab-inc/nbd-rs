@@ -1,5 +1,5 @@
-use std::io;
-use std::io::prelude::*;
+// use std::io;
+// use std::io::prelude::*;
 use std::net::SocketAddr;
 use std::net::TcpStream;
 use std::net::TcpListener;
@@ -20,44 +20,49 @@ struct NBDServer {
     addr: SocketAddr,
     socket: TcpListener,
     sessions: Arc<Mutex<Vec<NBDSession>>>,
-    // sessions: Vec<NBDSession>,
-    token_counter: usize,
-    port: u16
+    host: String,
+    port: u16,
 }
 
 
 impl NBDServer {
     fn new(host: String, port: u16) -> NBDServer {
         let addr: SocketAddr = format!("{}:{}", host, port).parse().unwrap();
+
         let server = NBDServer {
-            addr: addr,
+            host,
+            addr,
             socket: TcpListener::bind(&addr).unwrap(),
-            // sessions: vec![],
             sessions: Arc::new(Mutex::new(Vec::new())),
-            token_counter: 0,
-            port: port,
+            port,
         };
         server
     }
 
-    fn handle_connection(&self, socket: TcpStream /*, addr: SocketAddr*/) -> Result<(), io::Error> {
+    fn handle_connection(&self, socket: TcpStream /*, addr: SocketAddr*/) {
         // TODO: Process socket
-        let session = NBDSession { socket: socket /*, addr: addr*/ };
+        let mut session = NBDSession {
+            socket,
+            // addr,
+        };
 
         //self.sessions.push(session);
         match self.sessions.lock() {
-            Ok(mut sessions) => sessions.push(session),
+            Ok(mut sessions) => {
+                sessions.push(session);
+            },
             Err(_) => panic!(),
         }
 
         println!("Connection established!");
-        Ok(())
     }
 
     fn listen(self: NBDServer) {
-        let listener = TcpListener::bind("127.0.0.1:7878").unwrap();
+        let hostport = format!("{}:{}", self.host, self.port);
+        println!("Listening on {}", hostport);
+        // let listener = self.socket;
 
-        for stream in listener.incoming() {
+        for stream in self.socket.incoming() {
             self.handle_connection(stream.unwrap());
         }
 
