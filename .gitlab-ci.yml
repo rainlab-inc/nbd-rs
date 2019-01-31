@@ -1,0 +1,40 @@
+stages:
+  - build
+
+build:latest:
+  image: rust:1.31
+  stage: build
+  tags:
+    - docker
+  script:
+    - cargo build
+  only:
+    - master
+  artifacts:
+    paths:
+    - target/debug/nbd-proxy-rs
+    expire_in: 1 week
+
+build:release:
+  image: rust:1.31
+  stage: build
+  tags:
+    - docker
+  script:
+    - cargo build --release
+  only:
+    - tags
+  artifacts:
+    paths:
+    - target/release/nbd-proxy-rs
+    expire_in: 1 week
+
+build:dev:
+  image: rust:1.31
+  stage: build
+  tags:
+    - docker
+  script:
+    - cargo build
+  except:
+    - master
