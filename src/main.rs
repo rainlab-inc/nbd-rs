@@ -1,10 +1,9 @@
 // use std::io;
 // use std::io::prelude::*;
 use std::net::SocketAddr;
-use std::net::TcpStream;
 use std::net::TcpListener;
+use std::net::TcpStream;
 // use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 
 #[derive(Debug)]
 struct NBDSession {
@@ -19,58 +18,60 @@ struct NBDSession {
 struct NBDServer {
     addr: SocketAddr,
     socket: TcpListener,
-    sessions: Arc<Mutex<Vec<NBDSession>>>,
+    sessions: Vec<NBDSession>,
     host: String,
     port: u16,
 }
 
-
 impl NBDServer {
     fn new(host: String, port: u16) -> NBDServer {
         let addr: SocketAddr = format!("{}:{}", host, port).parse().unwrap();
+        let socket_addr = addr.clone();
 
-        let server = NBDServer {
+        NBDServer {
             host,
             addr,
-            socket: TcpListener::bind(&addr).unwrap(),
-            sessions: Arc::new(Mutex::new(Vec::new())),
+            socket: TcpListener::bind(socket_addr).unwrap(),
+            sessions: vec![],
             port,
-        };
-        server
-    }
-
-    fn handle_connection(&self, socket: TcpStream /*, addr: SocketAddr*/) {
-        // TODO: Process socket
-        let mut session = NBDSession {
-            socket,
-            // addr,
-        };
-
-        //self.sessions.push(session);
-        match self.sessions.lock() {
-            Ok(mut sessions) => {
-                sessions.push(session);
-            },
-            Err(_) => panic!(),
         }
-
-        println!("Connection established!");
     }
 
-    fn listen(self: NBDServer) {
+    fn listen(&mut self) {
         let hostport = format!("{}:{}", self.host, self.port);
         println!("Listening on {}", hostport);
         // let listener = self.socket;
 
-        for stream in self.socket.incoming() {
-            self.handle_connection(stream.unwrap());
+        loop {
+            // This part can be simplified with returning a result type and using `?` at the
+            // end of .accept()?
+            let (stream, _) = match self.socket.accept() {
+                Ok(conn) => conn,
+                Err(e) => {
+                    eprintln!("failed to accept: {:?}", e);
+                    break;
+                }
+            };
+
+            self.handle_connection(stream);
         }
 
         println!("Done");
     }
+
+    fn handle_connection(&mut self, socket: TcpStream /*, addr: SocketAddr*/) {
+        // TODO: Process socket
+        let session = NBDSession {
+            socket,
+            // addr,
+        };
+
+        self.sessions.push(session);
+        println!("Connection established!");
+    }
 }
 
 fn main() {
-    let server = NBDServer::new("0.0.0.0".to_string(), 10891);
+    let mut server = NBDServer::new("0.0.0.0".to_string(), 10891);
     server.listen();
 }
