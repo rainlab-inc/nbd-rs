@@ -18,7 +18,7 @@ struct NBDSession {
 struct NBDServer {
     addr: SocketAddr,
     socket: TcpListener,
-    sessions: Vec<NBDSession>,
+    session: Option<NBDSession>,
     host: String,
     port: u16,
 }
@@ -29,10 +29,10 @@ impl NBDServer {
         let socket_addr = addr.clone();
 
         NBDServer {
-            host,
             addr,
             socket: TcpListener::bind(socket_addr).unwrap(),
-            sessions: vec![],
+            session: None,
+            host,
             port,
         }
     }
@@ -65,8 +65,7 @@ impl NBDServer {
             socket,
             // addr,
         };
-
-        self.sessions.push(session);
+        self.session = Some(session);
         println!("Connection established!");
     }
 }
