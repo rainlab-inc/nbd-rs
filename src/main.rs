@@ -1,9 +1,10 @@
 // use std::io;
 // use std::io::prelude::*;
-use std::net::SocketAddr;
-use std::net::TcpListener;
-use std::net::TcpStream;
-// use std::collections::HashMap;
+use std::io::{Read, Write};
+use std::net::{SocketAddr, TcpListener, TcpStream};
+//use std::collections::HashMap;
+
+mod proto;
 
 #[derive(Debug)]
 struct NBDSession {
@@ -52,8 +53,10 @@ impl NBDServer {
                     break;
                 }
             };
+            let stream_clone = stream.try_clone().unwrap();
 
             self.handle_connection(stream);
+            self.handshake(stream_clone);
         }
 
         println!("Done");
@@ -67,6 +70,32 @@ impl NBDServer {
         };
         self.session = Some(session);
         println!("Connection established!");
+    }
+
+    fn read_client(&mut self, mut socket: TcpStream) -> [u8; 32] {
+        let mut data = [0 as u8; 32];
+        while match socket.read(&mut data) {
+            Ok(size) => {
+                socket.write(&data[0..size]).unwrap();
+                true
+            }
+            Err(_) => {
+                println!("Error on reading");
+                false
+            }
+        } {}
+        data
+    }
+
+    fn handshake(&mut self, socket: TcpStream) {
+        println!("Handshake started...");
+        let newstyle = proto::NBD_FLAG_FIXED_NEWSTYLE;
+        let no_zeroes = proto::NBD_FLAG_NO_ZEROES;
+        let handshake_flags: Vec<u8> = vec![newstyle | no_zeroes; 2];
+        let buf: &[u8; 16] = b"NBDMAGICIHAVEOPT";
+        let _initial_message: Vec<&u8> = buf.iter().chain(handshake_flags.iter()).collect();
+        println!("Created Initial Message: {:?}", _initial_message);
+        self.read_client(socket);
     }
 }
 
