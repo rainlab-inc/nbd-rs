@@ -3,3 +3,6 @@ name = "nbd-proxy-rs"
 version = "0.1.0"
 authors = ["Furkan Mustafa <furkan@rainlab.co.jp>"]
 edition = "2018"
+
+#[dependencies]
+#byteorder = "1.3.4"

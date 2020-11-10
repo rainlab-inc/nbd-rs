@@ -2,6 +2,7 @@
 // use std::io::prelude::*;
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
+//use byteorder::{BigEndian as BE};
 //use std::collections::HashMap;
 
 mod proto;
@@ -53,10 +54,8 @@ impl NBDServer {
                     break;
                 }
             };
-            let stream_clone = stream.try_clone().unwrap();
-
             self.handle_connection(stream);
-            self.handshake(stream_clone);
+            self.handshake();
         }
 
         println!("Done");
@@ -72,30 +71,24 @@ impl NBDServer {
         println!("Connection established!");
     }
 
-    fn read_client(&mut self, mut socket: TcpStream) -> [u8; 32] {
+    fn read_client(&mut self) -> [u8; 32] {
         let mut data = [0 as u8; 32];
-        while match socket.read(&mut data) {
-            Ok(size) => {
-                socket.write(&data[0..size]).unwrap();
-                true
-            }
-            Err(_) => {
-                println!("Error on reading");
-                false
-            }
-        } {}
+        let mut socket = &self.session.as_ref().unwrap().socket;
+        socket.read(&mut data).expect("Error on reading client.");
         data
     }
 
-    fn handshake(&mut self, socket: TcpStream) {
+    fn handshake(&mut self) {
         println!("Handshake started...");
         let newstyle = proto::NBD_FLAG_FIXED_NEWSTYLE;
         let no_zeroes = proto::NBD_FLAG_NO_ZEROES;
-        let handshake_flags: Vec<u8> = vec![newstyle | no_zeroes; 2];
-        let buf: &[u8; 16] = b"NBDMAGICIHAVEOPT";
-        let _initial_message: Vec<&u8> = buf.iter().chain(handshake_flags.iter()).collect();
-        println!("Created Initial Message: {:?}", _initial_message);
-        self.read_client(socket);
+        let handshake_flags = (newstyle | no_zeroes) as u16;//u8::from_ne_bytes((newstyle | no_zeroes).to_ne_bytes());
+        let mut stream = &self.session.as_ref().unwrap().socket;
+        stream.write(b"NBDMAGICIHAVEOPT").expect("Couldn't send initial message!");
+        stream.write(&handshake_flags.to_be_bytes()).expect("Couldn't send handshake flags");
+        println!("Initial message sent");
+        let data = self.read_client();
+        println!("Data read: {:?}", data);
     }
 }
 
