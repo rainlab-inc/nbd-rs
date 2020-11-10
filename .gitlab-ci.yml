@@ -2,7 +2,7 @@ stages:
   - build
 
 build:latest:
-  image: rust:1.31
+  image: rust:1.47
   stage: build
   tags:
     - docker
@@ -16,7 +16,7 @@ build:latest:
     expire_in: 1 week
 
 build:release:
-  image: rust:1.31
+  image: rust:1.47
   stage: build
   tags:
     - docker
@@ -30,7 +30,7 @@ build:release:
     expire_in: 1 week
 
 build:dev:
-  image: rust:1.31
+  image: rust:1.47
   stage: build
   tags:
     - docker
