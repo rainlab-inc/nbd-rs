@@ -71,8 +71,8 @@ impl NBDServer {
         println!("Connection established!");
     }
 
-    fn read_client(&mut self) -> [u8; 32] {
-        let mut data = [0 as u8; 32];
+    fn read_client(&mut self) -> [u8; 4] {
+        let mut data = [0 as u8; 4];
         let mut socket = &self.session.as_ref().unwrap().socket;
         socket.read(&mut data).expect("Error on reading client.");
         data
@@ -87,8 +87,11 @@ impl NBDServer {
         stream.write(b"NBDMAGICIHAVEOPT").expect("Couldn't send initial message!");
         stream.write(&handshake_flags.to_be_bytes()).expect("Couldn't send handshake flags");
         println!("Initial message sent");
-        let data = self.read_client();
-        println!("Data read: {:?}", data);
+        let client_flags = u32::from_be_bytes(self.read_client());
+        let c_newstyle = client_flags & (proto::NBD_FLAG_C_FIXED_NEWSTYLE as u32);
+        let c_no_zeroes = client_flags & (proto::NBD_FLAG_C_NO_ZEROES as u32);
+        println!(" -> fixedNewStyle: {}", c_newstyle != 0);
+        println!(" -> noZeroes: {}", c_no_zeroes != 0);
     }
 }
 
