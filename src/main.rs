@@ -10,6 +10,7 @@ mod proto;
 #[derive(Debug)]
 struct NBDSession {
     socket: TcpStream,
+    flags: [bool; 2],
     // addr: SocketAddr,
     // socket
     // inputQueue
@@ -55,7 +56,6 @@ impl NBDServer {
                 }
             };
             self.handle_connection(stream);
-            self.handshake();
         }
 
         println!("Done");
@@ -63,35 +63,45 @@ impl NBDServer {
 
     fn handle_connection(&mut self, socket: TcpStream /*, addr: SocketAddr*/) {
         // TODO: Process socket
+        let socket_clone = socket.try_clone().expect("error");
+        let flags = self.handshake(socket);
         let session = NBDSession {
-            socket,
+            socket: socket_clone,
+            flags,
             // addr,
         };
         self.session = Some(session);
         println!("Connection established!");
     }
 
-    fn read_client(&mut self) -> [u8; 4] {
+    fn read_client(&mut self, mut socket: TcpStream) -> [u8; 4] {
         let mut data = [0 as u8; 4];
-        let mut socket = &self.session.as_ref().unwrap().socket;
         socket.read(&mut data).expect("Error on reading client.");
         data
     }
 
-    fn handshake(&mut self) {
+    fn handshake(&mut self, mut socket: TcpStream) -> [bool; 2] {
         println!("Handshake started...");
         let newstyle = proto::NBD_FLAG_FIXED_NEWSTYLE;
         let no_zeroes = proto::NBD_FLAG_NO_ZEROES;
-        let handshake_flags = (newstyle | no_zeroes) as u16;//u8::from_ne_bytes((newstyle | no_zeroes).to_ne_bytes());
-        let mut stream = &self.session.as_ref().unwrap().socket;
-        stream.write(b"NBDMAGICIHAVEOPT").expect("Couldn't send initial message!");
-        stream.write(&handshake_flags.to_be_bytes()).expect("Couldn't send handshake flags");
+        let handshake_flags = (newstyle | no_zeroes) as u16;
+        socket
+            .write(b"NBDMAGICIHAVEOPT")
+            .expect("Couldn't send initial message!");
+        socket
+            .write(&handshake_flags.to_be_bytes())
+            .expect("Couldn't send handshake flags");
         println!("Initial message sent");
-        let client_flags = u32::from_be_bytes(self.read_client());
-        let c_newstyle = client_flags & (proto::NBD_FLAG_C_FIXED_NEWSTYLE as u32);
-        let c_no_zeroes = client_flags & (proto::NBD_FLAG_C_NO_ZEROES as u32);
-        println!(" -> fixedNewStyle: {}", c_newstyle != 0);
-        println!(" -> noZeroes: {}", c_no_zeroes != 0);
+        let client_flags = u32::from_be_bytes(self.read_client(socket));
+        let flags_list = [
+            client_flags & (proto::NBD_FLAG_C_FIXED_NEWSTYLE as u32) != 0,
+            client_flags & (proto::NBD_FLAG_C_NO_ZEROES as u32) != 0,
+        ];
+        //let c_newstyle = client_flags & (proto::NBD_FLAG_C_FIXED_NEWSTYLE as u32);
+        //let c_no_zeroes = client_flags & (proto::NBD_FLAG_C_NO_ZEROES as u32);
+        println!(" -> fixedNewStyle: {}", flags_list[0]);
+        println!(" -> noZeroes: {}", flags_list[1]);
+        flags_list
     }
 }
 
