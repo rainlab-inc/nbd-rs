@@ -56,7 +56,9 @@ impl NBDServer {
                     break;
                 }
             };
+            let stream_clone = clone_stream!(stream);
             self.handle_connection(stream);
+            self.transmission(stream_clone);
         }
 
         println!("Done");
@@ -64,7 +66,7 @@ impl NBDServer {
 
     fn handle_connection(&mut self, socket: TcpStream /*, addr: SocketAddr*/) {
         // TODO: Process socket
-        let socket_clone = socket.try_clone().expect("error");
+        let socket_clone = clone_stream!(socket);
         let flags = self.handshake(socket);
         let session = NBDSession {
             socket: socket_clone,
@@ -80,7 +82,7 @@ impl NBDServer {
         let newstyle = proto::NBD_FLAG_FIXED_NEWSTYLE;
         let no_zeroes = proto::NBD_FLAG_NO_ZEROES;
         let handshake_flags = (newstyle | no_zeroes) as u16;
-        let socket_clone = socket.try_clone().expect("err on cloning.");
+        let socket_clone = clone_stream!(socket);
 
         socket
             .write(b"NBDMAGICIHAVEOPT")
@@ -98,6 +100,30 @@ impl NBDServer {
         println!(" -> noZeroes: {}", flags_list[1]);
         println!("Handshake done successfully!");
         flags_list
+    }
+
+    fn transmission(&mut self, socket: TcpStream) {
+        println!("Transmission started...");
+        loop {
+            let socket_clone = clone_stream!(socket);
+            let request = match util::read_u32(socket) {
+                0x25609513 => 0x25609513, // NBD_REQUEST_MAGIC
+                0x49484156 => match util::read_u32(socket_clone) { // "IHAV"
+                    0x454F5054 => 0x49484156454F5054 as u64, // "IHAVEOPT"
+                    e => {
+                        eprintln!("Error at NBD_IHAVEOPT. Expected: 0x25609513 Got: {:?}", format!("{:#X}", e));
+                        break;
+                    }
+                },
+                e => {
+                    eprintln!("Error at NBD_REQUEST_MAGIC. Expected: 0x25609513 Got: {:?}", format!("{:#X}", e));
+                    break;
+                }
+            };
+            println!("{:?}", format!("{:#X}", request));
+            break;
+        }
+        println!("Transmission ended");
     }
 }
 

@@ -3,9 +3,16 @@
 use std::io::{Read, Write};
 use std::net::TcpStream;
 
+macro_rules! clone_stream {
+    ($stream:expr) => {(
+        //assert_eq!(::std::any::type_name_of_val($stream), "std::net::TcpStream"); Unstable for rust v1.47
+        $stream.try_clone().expect("Err on cloning stream")
+    )};
+}
+
 macro_rules! read_x_bytes {
     ($ty:ty, $size:expr, $socket:expr) => {{
-        assert!($size == ::core::mem::size_of::<$ty>());
+        assert_eq!($size, ::core::mem::size_of::<$ty>());
         let mut data = [0 as u8; $size];
         $socket.read(&mut data).expect("Error on reading client.");
         <$ty>::from_be_bytes(data)
@@ -14,7 +21,7 @@ macro_rules! read_x_bytes {
 
 macro_rules! write_x_bytes {
     ($ty:ty, $num:expr, $socket:expr) => {{
-        assert!(::core::mem::size_of_val(&$num) == ::core::mem::size_of::<$ty>());
+        assert_eq!(::core::mem::size_of_val(&$num), ::core::mem::size_of::<$ty>());
         let data = <$ty>::to_be_bytes($num);
         $socket.write(&data).expect("Error writing to client.");
     }};
