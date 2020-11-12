@@ -1,11 +1,12 @@
 // use std::io;
 // use std::io::prelude::*;
-use std::io::{Read, Write};
+use std::io::Write;
 use std::net::{SocketAddr, TcpListener, TcpStream};
 //use byteorder::{BigEndian as BE};
 //use std::collections::HashMap;
 
 mod proto;
+mod util;
 
 #[derive(Debug)]
 struct NBDSession {
@@ -74,33 +75,28 @@ impl NBDServer {
         println!("Connection established!");
     }
 
-    fn read_client(&mut self, mut socket: TcpStream) -> [u8; 4] {
-        let mut data = [0 as u8; 4];
-        socket.read(&mut data).expect("Error on reading client.");
-        data
-    }
-
     fn handshake(&mut self, mut socket: TcpStream) -> [bool; 2] {
         println!("Handshake started...");
         let newstyle = proto::NBD_FLAG_FIXED_NEWSTYLE;
         let no_zeroes = proto::NBD_FLAG_NO_ZEROES;
         let handshake_flags = (newstyle | no_zeroes) as u16;
+        let socket_clone = socket.try_clone().expect("err on cloning.");
+
         socket
             .write(b"NBDMAGICIHAVEOPT")
             .expect("Couldn't send initial message!");
-        socket
-            .write(&handshake_flags.to_be_bytes())
-            .expect("Couldn't send handshake flags");
+        util::write_u16(handshake_flags, socket);
         println!("Initial message sent");
-        let client_flags = u32::from_be_bytes(self.read_client(socket));
+
+        let client_flags = util::read_u32(socket_clone);
         let flags_list = [
             client_flags & (proto::NBD_FLAG_C_FIXED_NEWSTYLE as u32) != 0,
             client_flags & (proto::NBD_FLAG_C_NO_ZEROES as u32) != 0,
         ];
-        //let c_newstyle = client_flags & (proto::NBD_FLAG_C_FIXED_NEWSTYLE as u32);
-        //let c_no_zeroes = client_flags & (proto::NBD_FLAG_C_NO_ZEROES as u32);
+
         println!(" -> fixedNewStyle: {}", flags_list[0]);
         println!(" -> noZeroes: {}", flags_list[1]);
+        println!("Handshake done successfully!");
         flags_list
     }
 }
