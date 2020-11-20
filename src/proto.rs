@@ -1,16 +1,16 @@
 #![allow(dead_code)]
 pub const NBD_INIT_MAGIC: &[u8; 9] = b"NBD_MAGIC";
 
-pub const NBD_OPT_EXPORT_NAME: u8 = 1;
-pub const NBD_OPT_ABORT: u8 = 2;
-pub const NBD_OPT_LIST: u8 = 3;
-pub const NBD_OPT_PEEK_EXPORT: u8 = 4;
-pub const NBD_OPT_STARTTLS: u8 = 5;
-pub const NBD_OPT_INFO: u8 = 6;
-pub const NBD_OPT_GO: u8 = 7;
-pub const NBD_OPT_STRUCTURED_REPLY: u8 = 8;
-pub const NBD_OPT_LIST_META_CONTEXT: u8 = 9;
-pub const NBD_OPT_SET_META_CONTEXT: u8 = 10;
+pub const NBD_OPT_EXPORT_NAME: u32 = 1;
+pub const NBD_OPT_ABORT: u32 = 2;
+pub const NBD_OPT_LIST: u32 = 3;
+pub const NBD_OPT_PEEK_EXPORT: u32 = 4;
+pub const NBD_OPT_STARTTLS: u32 = 5;
+pub const NBD_OPT_INFO: u32 = 6;
+pub const NBD_OPT_GO: u32 = 7;
+pub const NBD_OPT_STRUCTURED_REPLY: u32 = 8;
+pub const NBD_OPT_LIST_META_CONTEXT: u32 = 9;
+pub const NBD_OPT_SET_META_CONTEXT: u32 = 10;
 
 pub const NBD_INFO_EXPORT: u8 = 0;
 pub const NBD_INFO_NAME: u8 = 1;

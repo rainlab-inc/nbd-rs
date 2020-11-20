@@ -1,13 +1,15 @@
+//TODO: Convert read & write functions to macros, so usage of these stuff will be simplified
+// util::read_u16(clone_stream!(socket)) ---> read_u16!(socket)
+
 #![macro_use]
 #![allow(dead_code)]
 use std::io::{Read, Write};
 use std::net::TcpStream;
 
 macro_rules! clone_stream {
-    ($stream:expr) => {(
-        //assert_eq!(::std::any::type_name_of_val($stream), "std::net::TcpStream"); Unstable for rust v1.47
-        $stream.try_clone().expect("Err on cloning stream")
-    )};
+    ($stream:expr) => {
+        ($stream.try_clone().expect("Err on cloning stream"))
+    };
 }
 
 macro_rules! read_x_bytes {
@@ -19,11 +21,32 @@ macro_rules! read_x_bytes {
     }};
 }
 
+macro_rules! read_string {
+    ($size:expr, $socket:expr) => {{
+        assert!($size > 0);
+        let mut data = Vec::with_capacity($size);
+        $socket
+            .read_exact(&mut data)
+            .expect("Error on reading client.");
+        <[u8]>::make_ascii_uppercase(&mut data[..]);
+        String::from_utf8_lossy(&data).to_string()
+    }};
+}
+
 macro_rules! write_x_bytes {
     ($ty:ty, $num:expr, $socket:expr) => {{
-        assert_eq!(::core::mem::size_of_val(&$num), ::core::mem::size_of::<$ty>());
+        assert_eq!(
+            ::core::mem::size_of_val(&$num),
+            ::core::mem::size_of::<$ty>()
+        );
         let data = <$ty>::to_be_bytes($num);
         $socket.write(&data).expect("Error writing to client.");
+    }};
+}
+
+macro_rules! write {
+    ($buf:expr, $socket:expr) => {{
+        $socket.write($buf).expect("Error on writing data")
     }};
 }
 
@@ -41,6 +64,10 @@ pub fn read_u32(mut socket: TcpStream) -> u32 {
 
 pub fn read_u64(mut socket: TcpStream) -> u64 {
     read_x_bytes!(u64, 8, socket)
+}
+
+pub fn read_string(size: usize, mut socket: TcpStream) -> String {
+    read_string!(size, socket)
 }
 
 pub fn write_u8(num: u8, mut socket: TcpStream) {
