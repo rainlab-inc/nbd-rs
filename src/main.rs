@@ -186,10 +186,6 @@ impl NBDServer {
     fn handle_option(&mut self, socket: TcpStream) {
         let option = util::read_u32(clone_stream!(socket));
         let len = util::read_u32(clone_stream!(socket));
-        let mut data = Vec::with_capacity(len as usize);
-        clone_stream!(socket)
-            .read_exact(&mut data)
-            .expect("Error on reading Option Data!");
         match option {
             /*
             proto::NBD_OPT_GO | proto::NBD_OPT_INFO => {
@@ -214,7 +210,7 @@ impl NBDServer {
                 self.handle_opt_structured_reply(clone_stream!(socket), len);
             }
             proto::NBD_OPT_SET_META_CONTEXT => {
-                self.handle_opt_set_meta_context(clone_stream!(socket));
+                self.handle_opt_set_meta_context(clone_stream!(socket), len);
             }
             1..=7 | 9 => eprintln!("Unimplemented OPT: {:?}", option),
             _ => eprintln!("Option req not found."),
@@ -228,13 +224,16 @@ impl NBDServer {
         opt: u32,
         reply_type: u32,
         len: u32,
-        data: Vec<u8>,
     ) {
         util::write_u64(0x3e889045565a9, clone_stream!(socket)); // REPLY MAGIC
         util::write_u32(opt, clone_stream!(socket));
         util::write_u32(reply_type, clone_stream!(socket));
         util::write_u32(len, clone_stream!(socket));
-        if !data.is_empty() {
+        if len > 0 {
+            let mut data = vec![0; len as usize];
+            clone_stream!(socket)
+                .read_exact(&mut data[..])
+                .expect("Error on reading Option Data!");
             write!(&data, socket);
         }
     }
@@ -277,19 +276,21 @@ impl NBDServer {
     */
 
     fn handle_opt_structured_reply(&mut self, socket: TcpStream, len: u32) {
-        println!("Sending STRUCTURED REPLY ACK...");
         self.reply_opt(
             clone_stream!(socket),
-            proto::NBD_OPT_STRUCTURED_REPLY as u32,
-            proto::NBD_REP_ACK as u32,
+            proto::NBD_OPT_STRUCTURED_REPLY,
+            proto::NBD_REP_ERR_UNSUP as u32,
             len,
-            Vec::new(), // Empty Data
         );
-        println!("Sent ACK.");
     }
 
-    fn handle_opt_set_meta_context(&mut self, _socket: TcpStream) {
-        println!("Implementing...");
+    fn handle_opt_set_meta_context(&mut self, socket: TcpStream, len: u32) {
+        self.reply_opt(
+            clone_stream!(socket),
+            proto::NBD_OPT_SET_META_CONTEXT,
+            proto::NBD_REP_ERR_UNSUP as u32,
+            len,
+        )
     }
 }
 
