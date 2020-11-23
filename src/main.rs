@@ -1,7 +1,7 @@
 // use std::io;
 // use std::io::prelude::*;
 use std::io::{Read, Write};
-use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::net::{SocketAddr, TcpListener, TcpStream}; //, Shutdown
 //use std::collections::HashMap;
 
 // https://github.com/NetworkBlockDevice/nbd/blob/master/nbd-server.c#L2362-L2468
@@ -174,48 +174,35 @@ impl NBDServer {
         let _datalen = util::read_u32(clone_stream!(socket));
     }
 
-    ///    fn structured_reply() {
-    ///        util::write_u32(0x668e33ef_u32, clone_stream!(socket)); // NBD_STRUCTURED_REPLY_MAGIC
-    ///        let reply_flag = if is_final { proto::NBD_REPLY_FLAG_DONE as u16 } else { 0 };
-    ///        util::write_u16(reply_flag, clone_stream!(socket));
-    ///        util::write_u16(rep_type, clone_stream!(socket));
-    ///        util::write_u64(handle, clone_stream!(socket));
-    ///        util::write_u32(length, clone_stream!(socket));
-    ///    }
+    /*
+    fn structured_reply() {
+        util::write_u32(0x668e33ef_u32, clone_stream!(socket)); // NBD_STRUCTURED_REPLY_MAGIC
+        let reply_flag = if is_final { proto::NBD_REPLY_FLAG_DONE as u16 } else { 0 };
+        util::write_u16(reply_flag, clone_stream!(socket));
+        util::write_u16(rep_type, clone_stream!(socket));
+        util::write_u64(handle, clone_stream!(socket));
+        util::write_u32(length, clone_stream!(socket));
+    }
+    */
 
     fn handle_option(&mut self, socket: TcpStream) {
         let option = util::read_u32(clone_stream!(socket));
-        let len = util::read_u32(clone_stream!(socket));
         match option {
-            /*
-            proto::NBD_OPT_GO | proto::NBD_OPT_INFO => {
-                // 7, 6
-                self.handle_opt_info(clone_stream!(socket), option);
-            }
-            proto::NBD_OPT_EXPORT_NAME => {
-                // 1
-                self.handle_opt_export(clone_stream!(socket));
-            }
-            proto::NBD_OPT_ABORT => {
-                // 2
+            proto::NBD_OPT_ABORT => {// 2
                 self.handle_opt_abort(clone_stream!(socket));
+                //println!("Shutting down connection...")'
+                //socket.shutdown(Shutdown::Both).expect("Shutdown failed");
+                //break;
             }
-            proto::NBD_OPT_LIST => {
-                // 3
-                self.handle_opt_list(clone_stream!(socket));
+            proto::NBD_OPT_STRUCTURED_REPLY => {// 8
+                self.handle_opt_structured_reply(clone_stream!(socket));
             }
-            */
-            proto::NBD_OPT_STRUCTURED_REPLY => {
-                // 8
-                self.handle_opt_structured_reply(clone_stream!(socket), len);
+            proto::NBD_OPT_SET_META_CONTEXT => {// 10
+                self.handle_opt_set_meta_context(clone_stream!(socket));
             }
-            proto::NBD_OPT_SET_META_CONTEXT => {
-                self.handle_opt_set_meta_context(clone_stream!(socket), len);
-            }
-            1..=7 | 9 => eprintln!("Unimplemented OPT: {:?}", option),
+            1 | 3..=7 | 9 => eprintln!("Unimplemented OPT: {:?}", option),
             _ => eprintln!("Option req not found."),
         }
-        println!("Option {:?}", option);
     }
 
     fn reply_opt(
@@ -225,18 +212,26 @@ impl NBDServer {
         reply_type: u32,
         len: u32,
     ) {
+        let data_permitted = vec![1, 6, 7, 9, 10].contains(&opt); // OPTION CODES THAT IS ALLOWED TO CARRY DATA
         util::write_u64(0x3e889045565a9, clone_stream!(socket)); // REPLY MAGIC
         util::write_u32(opt, clone_stream!(socket));
         util::write_u32(reply_type, clone_stream!(socket));
         util::write_u32(len, clone_stream!(socket));
+        println!(" -> Option: {:?}, Option length: {:?}, Data permitted: {:?}", opt, len, data_permitted);
+
         if len > 0 {
             let mut data = vec![0; len as usize];
-            clone_stream!(socket)
-                .read_exact(&mut data[..])
+            clone_stream!(socket) // Docs says server should not reject the data even if not needed
+                .read_exact(&mut data)
                 .expect("Error on reading Option Data!");
-            write!(&data, socket);
+            println!("\t\\-> Data: {:?}", data);
+            if data_permitted {
+                write!(&data, socket);
+                println!("Data sent for option {:?}", opt);
+            }
         }
     }
+
     /*
     fn handle_opt_info(&mut self, socket: TcpStream, option: u32) {
         let datalen = util::read_u32(clone_stream!(socket));
@@ -263,32 +258,34 @@ impl NBDServer {
     }
     */
 
-    /*
     fn handle_opt_abort(&mut self, socket: TcpStream) {
-        println!("Working on it...");
+        /*
+        let len = util::read_u32(clone_stream!(socket));
+        self.reply_opt(
+            clone_stream!(socket),
+            proto::NBD_OPT_ABORT,
+            proto::NBD_REP_ERR_UNSUP,
+            len,
+        );
+        */
     }
-    */
 
-    /*
-    fn handle_opt_list(&mut self, socket: TcpStream) {
-        println!("Working on it...");
-    }
-    */
-
-    fn handle_opt_structured_reply(&mut self, socket: TcpStream, len: u32) {
+    fn handle_opt_structured_reply(&mut self, socket: TcpStream) {
+        let len = util::read_u32(clone_stream!(socket));
         self.reply_opt(
             clone_stream!(socket),
             proto::NBD_OPT_STRUCTURED_REPLY,
-            proto::NBD_REP_ERR_UNSUP as u32,
+            proto::NBD_REP_ERR_UNSUP,
             len,
         );
     }
 
-    fn handle_opt_set_meta_context(&mut self, socket: TcpStream, len: u32) {
+    fn handle_opt_set_meta_context(&mut self, socket: TcpStream) {
+        let len = util::read_u32(clone_stream!(socket));
         self.reply_opt(
             clone_stream!(socket),
             proto::NBD_OPT_SET_META_CONTEXT,
-            proto::NBD_REP_ERR_UNSUP as u32,
+            proto::NBD_REP_ERR_INVALID,
             len,
         )
     }

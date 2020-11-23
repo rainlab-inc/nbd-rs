@@ -50,12 +50,12 @@ pub const NBD_REPLY_TYPE_BLOCK_STATUS: u8 = 5;
 pub const NBD_REPLY_TYPE_ERROR: u8 = 2 ^ 15 + 1;
 pub const NBD_REPLY_TYPE_ERROR_OFFSET: u8 = 2 ^ 15 + 2;
 
-pub const NBD_REP_ACK: u8 = 1;
-pub const NBD_REP_SERVER: u8 = 2;
-pub const NBD_REP_INFO: u8 = 3;
-pub const NBD_REP_META_CONTEXT: u8 = 4;
+pub const NBD_REP_ACK: u32 = 1;
+pub const NBD_REP_SERVER: u32 = 2;
+pub const NBD_REP_INFO: u32 = 3;
+pub const NBD_REP_META_CONTEXT: u32 = 4;
 
-pub const NBD_REP_ERR: u32 = 2 << 31;
+pub const NBD_REP_ERR: u32 = 1 << 31;
 pub const NBD_REP_ERR_UNSUP: u32 = NBD_REP_ERR + 1;
 pub const NBD_REP_ERR_POLICY: u32 = NBD_REP_ERR + 2;
 pub const NBD_REP_ERR_INVALID: u32 = NBD_REP_ERR + 3;

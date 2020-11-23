@@ -12,6 +12,21 @@ macro_rules! clone_stream {
     };
 }
 
+/*
+macro_rules! convert_ux_to_bytes {
+    ($ty:ty, $num:expr) => {{
+        let size = ::core::mem::size_of::<$ty>();
+        println!("{:?}", size);
+        let mut bytes = Vec::with_capacity(size as usize);
+        for i in 0..size {
+            bytes[i] = (($num >> (size - i - 1) * 8) & 0xff) as u8;
+        }
+        println!("{:?}", bytes);
+        bytes
+    }}
+}
+*/
+
 macro_rules! read_x_bytes {
     ($ty:ty, $size:expr, $socket:expr) => {{
         assert_eq!($size, ::core::mem::size_of::<$ty>());
@@ -49,6 +64,12 @@ macro_rules! write {
         $socket.write($buf).expect("Error on writing data")
     }};
 }
+
+/*
+pub fn convert_u64_to_bytes(num: u64) -> Vec<u8> {
+    convert_ux_to_bytes!(u64, num)
+}
+*/
 
 pub fn read_u8(mut socket: TcpStream) -> u8 {
     read_x_bytes!(u8, 1, socket)
