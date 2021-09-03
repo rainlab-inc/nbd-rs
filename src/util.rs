@@ -39,7 +39,7 @@ macro_rules! read_x_bytes {
 macro_rules! read_string {
     ($size:expr, $socket:expr) => {{
         assert!($size > 0);
-        let mut data = Vec::with_capacity($size);
+        let mut data = vec![0; $size as usize];
         $socket
             .read_exact(&mut data)
             .expect("Error on reading client.");

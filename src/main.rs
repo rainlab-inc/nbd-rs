@@ -194,15 +194,43 @@ impl NBDServer {
                 //socket.shutdown(Shutdown::Both).expect("Shutdown failed");
                 //break;
             }
+            proto::NBD_OPT_INFO | proto::NBD_OPT_GO => {// 6, 7
+                self.handle_opt_info_go(clone_stream!(socket), option);
+            }
             proto::NBD_OPT_STRUCTURED_REPLY => {// 8
                 self.handle_opt_structured_reply(clone_stream!(socket));
             }
             proto::NBD_OPT_SET_META_CONTEXT => {// 10
                 self.handle_opt_set_meta_context(clone_stream!(socket));
             }
-            1 | 3..=7 | 9 => eprintln!("Unimplemented OPT: {:?}", option),
+            1 | 3..=5 | 9 => eprintln!("Unimplemented OPT: {:?}", option),
             _ => eprintln!("Option req not found."),
         }
+    }
+
+    fn reply(&mut self, socket: TcpStream, opt: u32, reply_type: u32, len: u32) {
+        util::write_u64(0x3e889045565a9, clone_stream!(socket)); // REPLY MAGIC
+        util::write_u32(opt, clone_stream!(socket));
+        util::write_u32(reply_type, clone_stream!(socket));
+        util::write_u32(len, socket);
+    }
+
+    fn reply_info_export(&mut self, socket: TcpStream, opt: u32) {
+        self.reply(
+            clone_stream!(socket),
+            opt,
+            proto::NBD_REP_INFO,
+            12
+        );
+        let volume_size: u64 = 4 * 1024 * 1024 * 1024;
+        let flags: u16 = proto::NBD_FLAG_HAS_FLAGS | proto::NBD_FLAG_SEND_FLUSH | proto::NBD_FLAG_SEND_RESIZE | proto::NBD_FLAG_SEND_WRITE_ZEROES | proto::NBD_FLAG_SEND_CACHE | proto::NBD_FLAG_SEND_TRIM;
+        util::write_u16(proto::NBD_INFO_EXPORT, clone_stream!(socket));
+        util::write_u64(volume_size, clone_stream!(socket)); // 32 bits, volume size
+        util::write_u16(flags, clone_stream!(socket)); // 16 bits, transmission flags
+        println!("Export Data Sent:");
+        println!("\tNBD_INFO_EXPORT: \t{:?}", proto::NBD_INFO_EXPORT as u16);
+        println!("\tVolume Size: \t\t{:?}", volume_size as u32);
+        println!("\tTransmission Flags: \t{:?}", flags as u16);
     }
 
     fn reply_opt(
@@ -213,9 +241,7 @@ impl NBDServer {
         len: u32,
     ) {
         let data_permitted = vec![1, 6, 7, 9, 10].contains(&opt); // OPTION CODES THAT IS ALLOWED TO CARRY DATA
-        util::write_u64(0x3e889045565a9, clone_stream!(socket)); // REPLY MAGIC
-        util::write_u32(opt, clone_stream!(socket));
-        util::write_u32(reply_type, clone_stream!(socket));
+        self.reply(clone_stream!(socket), opt, reply_type, 4 + len);
         util::write_u32(len, clone_stream!(socket));
         println!(" -> Option: {:?}, Option length: {:?}, Data permitted: {:?}", opt, len, data_permitted);
 
@@ -233,32 +259,13 @@ impl NBDServer {
     }
 
     /*
-    fn handle_opt_info(&mut self, socket: TcpStream, option: u32) {
-        let datalen = util::read_u32(clone_stream!(socket));
-        let namelen = util::read_u32(clone_stream!(socket));
-        let name = util::read_string(namelen as usize, clone_stream!(socket));
-        let info_req_count = util::read_u16(clone_stream!(socket));
-        let mut info_reqs = Vec::new();
-        for _ in 0..info_req_count {
-            info_reqs.push(util::read_u16(clone_stream!(socket)));
-        }
-        let _nbd_opt_obj = NBDOption {
-            option,
-            datalen,
-            name,
-            info_reqs,
-        };
-    }
-    */
-
-    /*
     fn handle_opt_export(&mut self, socket: TcpStream) {
         //let name = u32::to_string(&datalen);
         println!("Working on it...");
     }
     */
 
-    fn handle_opt_abort(&mut self, socket: TcpStream) {
+    fn handle_opt_abort(&mut self, _socket: TcpStream) {
         /*
         let len = util::read_u32(clone_stream!(socket));
         self.reply_opt(
@@ -268,6 +275,83 @@ impl NBDServer {
             len,
         );
         */
+    }
+
+    fn handle_opt_info_go(&mut self, mut socket: TcpStream, opt: u32) {
+        let _len = util::read_u32(clone_stream!(socket));
+        let namelen = util::read_u32(clone_stream!(socket));
+        // if namelen > len - 6 { return NBD_EINVAL }
+        let name = util::read_string(namelen as usize, clone_stream!(socket));
+        let info_req_count = util::read_u16(clone_stream!(socket));
+        let mut info_reqs = Vec::new();
+        for _ in 0..info_req_count {
+            info_reqs.push(util::read_u16(clone_stream!(socket)));
+        }
+        println!("{:?}", info_reqs);
+
+        for req in &info_reqs {
+            match *req {
+                proto::NBD_INFO_EXPORT => {// 0
+                    self.reply_info_export(clone_stream!(socket), opt);
+                }
+                proto::NBD_INFO_NAME => {// 1
+                    self.reply(
+                        clone_stream!(socket),
+                        opt,
+                        proto::NBD_REP_INFO,
+                        0
+                    );
+                    util::write_u16(proto::NBD_INFO_NAME, clone_stream!(socket));
+                    write!(name.as_bytes(), socket);
+                }
+                proto::NBD_INFO_DESCRIPTION => {// 2
+                    let name_as_bytes = name.as_bytes();
+                    let length_of_name = name_as_bytes.len();
+                    self.reply(
+                        clone_stream!(socket),
+                        opt,
+                        proto::NBD_REP_INFO,
+                        2 + length_of_name as u32
+                    );
+                    util::write_u16(proto::NBD_INFO_DESCRIPTION, clone_stream!(socket));
+                    write!(name_as_bytes, socket);
+
+                }
+                proto::NBD_INFO_BLOCK_SIZE => {// 3
+                    self.reply(
+                        clone_stream!(socket),
+                        opt,
+                        proto::NBD_REP_INFO,
+                        14
+                    );
+                    util::write_u16(proto::NBD_INFO_BLOCK_SIZE, clone_stream!(socket));
+                    util::write_u32(1024 as u32, clone_stream!(socket)); // 32 bits, minimum block size
+                    util::write_u32(4*1024*1024 as u32, clone_stream!(socket)); // 32 bits, preferred block size
+                    util::write_u32(4*1024*1024 as u32, clone_stream!(socket)); // 32 bits, maximum block size
+                    println!("Sent block size info");
+                    self.reply_info_export(clone_stream!(socket), opt);
+                }
+                r @ _ => {
+                    eprintln!("Invalid Info Request: {:?}", r);
+                    self.reply_opt(
+                        clone_stream!(socket),
+                        proto::NBD_REP_INFO,
+                        proto::NBD_EINVAL as u32,
+                        0
+                    )
+                }
+            }
+        }
+
+        // Finally send an ACK.
+        self.reply(
+            clone_stream!(socket),
+            opt,
+            proto::NBD_REP_ACK,
+            0
+        );
+        util::write_u32(0 as u32, socket);
+        println!("Sent ACK")
     }
 
     fn handle_opt_structured_reply(&mut self, socket: TcpStream) {
@@ -292,6 +376,6 @@ impl NBDServer {
 }
 
 fn main() {
-    let mut server = NBDServer::new("0.0.0.0".to_string(), 10891);
+    let mut server = NBDServer::new("0.0.0.0".to_string(), 10809);
     server.listen();
 }

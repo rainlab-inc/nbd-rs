@@ -1,6 +1,4 @@
 #![allow(dead_code)]
-pub const NBD_INIT_MAGIC: &[u8; 9] = b"NBD_MAGIC";
-
 pub const NBD_OPT_EXPORT_NAME: u32 = 1;
 pub const NBD_OPT_ABORT: u32 = 2;
 pub const NBD_OPT_LIST: u32 = 3;
@@ -12,20 +10,20 @@ pub const NBD_OPT_STRUCTURED_REPLY: u32 = 8;
 pub const NBD_OPT_LIST_META_CONTEXT: u32 = 9;
 pub const NBD_OPT_SET_META_CONTEXT: u32 = 10;
 
-pub const NBD_INFO_EXPORT: u8 = 0;
-pub const NBD_INFO_NAME: u8 = 1;
-pub const NBD_INFO_DESCRIPTION: u8 = 2;
-pub const NBD_INFO_BLOCK_SIZE: u8 = 3;
+pub const NBD_INFO_EXPORT: u16 = 0;
+pub const NBD_INFO_NAME: u16 = 1;
+pub const NBD_INFO_DESCRIPTION: u16 = 2;
+pub const NBD_INFO_BLOCK_SIZE: u16 = 3;
 
-pub const NBD_CMD_READ: u8 = 0;
-pub const NBD_CMD_WRITE: u8 = 1;
-pub const NBD_CMD_DISC: u8 = 2;
-pub const NBD_CMD_FLUSH: u8 = 3;
-pub const NBD_CMD_TRIM: u8 = 4;
-pub const NBD_CMD_CACHE: u8 = 5;
-pub const NBD_CMD_WRITE_ZEROES: u8 = 6;
-pub const NBD_CMD_BLOCK_STATUS: u8 = 7;
-pub const NBD_CMD_RESIZE: u8 = 8;
+pub const NBD_CMD_READ: u16 = 0;
+pub const NBD_CMD_WRITE: u16 = 1;
+pub const NBD_CMD_DISC: u16 = 2;
+pub const NBD_CMD_FLUSH: u16 = 3;
+pub const NBD_CMD_TRIM: u16 = 4;
+pub const NBD_CMD_CACHE: u16 = 5;
+pub const NBD_CMD_WRITE_ZEROES: u16 = 6;
+pub const NBD_CMD_BLOCK_STATUS: u16 = 7;
+pub const NBD_CMD_RESIZE: u16 = 8;
 
 // command flags
 pub const NBD_CMD_FLAG_FUA: u8 = 1 << 0;
@@ -76,14 +74,14 @@ pub const NBD_FLAG_NO_ZEROES: u8 = 1 << 1;
 pub const NBD_FLAG_C_NO_ZEROES: u8 = 1 << 1;
 
 // Transmission Flag bits
-pub const NBD_FLAG_HAS_FLAGS: u8 = 1 << 0;
-pub const NBD_FLAG_READ_ONLY: u8 = 1 << 1;
-pub const NBD_FLAG_SEND_FLUSH: u8 = 1 << 2;
-pub const NBD_FLAG_SEND_FUA: u8 = 1 << 3;
-pub const NBD_FLAG_ROTATIONAL: u8 = 1 << 4;
-pub const NBD_FLAG_SEND_TRIM: u8 = 1 << 5;
-pub const NBD_FLAG_SEND_WRITE_ZEROES: u8 = 1 << 6;
-pub const NBD_FLAG_SEND_DF: u8 = 1 << 7;
+pub const NBD_FLAG_HAS_FLAGS: u16 = 1 << 0;
+pub const NBD_FLAG_READ_ONLY: u16 = 1 << 1;
+pub const NBD_FLAG_SEND_FLUSH: u16 = 1 << 2;
+pub const NBD_FLAG_SEND_FUA: u16 = 1 << 3;
+pub const NBD_FLAG_ROTATIONAL: u16 = 1 << 4;
+pub const NBD_FLAG_SEND_TRIM: u16 = 1 << 5;
+pub const NBD_FLAG_SEND_WRITE_ZEROES: u16 = 1 << 6;
+pub const NBD_FLAG_SEND_DF: u16 = 1 << 7;
 pub const NBD_FLAG_CAN_MULTI_CONN: u16 = 1 << 8;
 pub const NBD_FLAG_SEND_RESIZE: u16 = 1 << 9;
 pub const NBD_FLAG_SEND_CACHE: u16 = 1 << 10;
