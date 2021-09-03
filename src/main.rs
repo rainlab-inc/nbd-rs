@@ -164,14 +164,33 @@ impl NBDServer {
         println!("Transmission ended");
     }
 
-    fn handle_request(&mut self, socket: TcpStream) {
-        let _flags = util::read_u16(clone_stream!(socket));
-        let _req_type = util::read_u16(clone_stream!(socket));
-        let _handle = util::read_u8(clone_stream!(socket));
-        let _offset_h = util::read_u32(clone_stream!(socket));
-        let _offset_l = util::read_u32(clone_stream!(socket));
-        let _offset = _offset_h * (2 << 31) + _offset_l;
-        let _datalen = util::read_u32(clone_stream!(socket));
+    fn handle_request(&mut self, mut socket: TcpStream) {
+        let flags = util::read_u16(clone_stream!(socket));
+        let req_type = util::read_u16(clone_stream!(socket));
+        let handle = util::read_u64(clone_stream!(socket));
+        let offset = util::read_u64(clone_stream!(socket));
+        let datalen = util::read_u32(clone_stream!(socket));
+        match req_type {
+            proto::NBD_CMD_READ => { // 0
+                println!("NBD_CMD_READ");
+                println!("flags:{}, handle: {}, offset: {}, datalen: {}", flags, handle, offset, datalen);
+                let buffer = vec![0u8; datalen as usize];
+                self.simple_reply(clone_stream!(socket), 0u32, handle);
+                util::write_u32(datalen, clone_stream!(socket));
+                socket.write(&buffer).expect("Couldn't send data.");
+            }
+            proto::NBD_CMD_DISC => { // 2
+                println!("NBD_CMD_DISC");
+            }
+            1 | 3..=8 => eprintln!("Unimplemented CMD: {:?}", req_type),
+            _ => eprintln!("Invalid CMD: {:?}", req_type)
+        }
+    }
+
+    fn simple_reply(&mut self, socket: TcpStream, err_code: u32, handle: u64) {
+        util::write_u32(0x67446698u32, clone_stream!(socket)); // SIMPLE REPLY MAGIC
+        util::write_u32(err_code, clone_stream!(socket));
+        util::write_u64(handle, clone_stream!(socket));
     }
 
     /*
