@@ -135,7 +135,7 @@ impl NBDServer {
                     0x454F5054 => 0x49484156454F5054 as u64, // "IHAV + EOPT"
                     e => {
                         eprintln!(
-                            "Error at NBD_IHAVEOPT. Expected: 0x25609513 Got: {:?}",
+                            "Error at NBD_IHAVEOPT. Expected: 0x49484156454F5054 Got: {:?}",
                             format!("{:#X}", e)
                         );
                         break;
@@ -217,7 +217,23 @@ impl NBDServer {
                 self.handle_opt_info_go(clone_stream!(socket), option);
             }
             proto::NBD_OPT_STRUCTURED_REPLY => {// 8
-                self.handle_opt_structured_reply(clone_stream!(socket));
+                let data = util::read_u32(clone_stream!(socket));
+                if data > 0 {
+                    println!("{}", data);
+                    self.reply(
+                        clone_stream!(socket),
+                        proto::NBD_OPT_STRUCTURED_REPLY,
+                        proto::NBD_REP_ERR_INVALID,
+                        0
+                    );
+                } else {
+                    self.reply(
+                        clone_stream!(socket),
+                        proto::NBD_OPT_STRUCTURED_REPLY,
+                        proto::NBD_REP_ACK,
+                        0
+                    );
+                }
             }
             proto::NBD_OPT_SET_META_CONTEXT => {// 10
                 self.handle_opt_set_meta_context(clone_stream!(socket));
