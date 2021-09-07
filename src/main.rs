@@ -2,6 +2,7 @@
 // use std::io::prelude::*;
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream}; //, Shutdown
+use std::time::{SystemTime, UNIX_EPOCH};
 //use std::collections::HashMap;
 
 // https://github.com/NetworkBlockDevice/nbd/blob/master/nbd-server.c#L2362-L2468
@@ -257,7 +258,7 @@ impl NBDServer {
             proto::NBD_REP_INFO,
             12
         );
-        let volume_size: u64 = 4 * 1024 * 1024 * 1024;
+        let volume_size: u64 = 256 * 1024 * 1024;
         let flags: u16 = proto::NBD_FLAG_HAS_FLAGS | proto::NBD_FLAG_SEND_FLUSH | proto::NBD_FLAG_SEND_RESIZE | proto::NBD_FLAG_SEND_WRITE_ZEROES | proto::NBD_FLAG_SEND_CACHE | proto::NBD_FLAG_SEND_TRIM;
         util::write_u16(proto::NBD_INFO_EXPORT, clone_stream!(socket));
         util::write_u64(volume_size, clone_stream!(socket)); // 32 bits, volume size
@@ -389,24 +390,38 @@ impl NBDServer {
         println!("Sent ACK")
     }
 
-    fn handle_opt_structured_reply(&mut self, socket: TcpStream) {
-        let len = util::read_u32(clone_stream!(socket));
-        self.reply_opt(
-            clone_stream!(socket),
-            proto::NBD_OPT_STRUCTURED_REPLY,
-            proto::NBD_REP_ERR_UNSUP,
-            len,
-        );
-    }
 
     fn handle_opt_set_meta_context(&mut self, socket: TcpStream) {
-        let len = util::read_u32(clone_stream!(socket));
-        self.reply_opt(
+        let total_length = util::read_u32(clone_stream!(socket));
+        let export_name_length = util::read_u32(clone_stream!(socket));
+        let export_name = util::read_string(export_name_length as usize, clone_stream!(socket));
+        let number_of_queries = util::read_u32(clone_stream!(socket));
+        println!("total_length: {}, export_name_length: {}, export_name: {}, number_of_queries: {}", total_length, export_name_length, export_name, number_of_queries);
+        if number_of_queries > 0 {
+            for i in 0..number_of_queries {
+                let query_length = util::read_u32(clone_stream!(socket));
+                let query = util::read_string(query_length as usize, clone_stream!(socket));
+                println!("iter: {}, query: {}", i, query);
+                self.reply(
+                    clone_stream!(socket),
+                    proto::NBD_OPT_SET_META_CONTEXT,
+                    proto::NBD_REP_META_CONTEXT as u32,
+                    4 + query.len() as u32
+                );
+                let nbd_metadata_context_id = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .subsec_nanos();
+                util::write_u32(nbd_metadata_context_id, clone_stream!(socket));
+                clone_stream!(socket).write(query.to_lowercase().as_bytes());
+            }
+        }
+        self.reply(
             clone_stream!(socket),
             proto::NBD_OPT_SET_META_CONTEXT,
-            proto::NBD_REP_ERR_INVALID,
-            len,
-        )
+            proto::NBD_REP_ACK,
+            0
+        );
     }
 }
 
