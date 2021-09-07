@@ -26,12 +26,12 @@ pub const NBD_CMD_BLOCK_STATUS: u16 = 7;
 pub const NBD_CMD_RESIZE: u16 = 8;
 
 // command flags
-pub const NBD_CMD_FLAG_FUA: u8 = 1 << 0;
-pub const NBD_CMD_FLAG_NO_HOLE: u8 = 1 << 1;
-pub const NBD_CMD_FLAG_DF: u8 = 1 << 2;
-pub const NBD_CMD_FLAG_REQ_ONE: u8 = 1 << 3;
+pub const NBD_CMD_FLAG_FUA: u16 = 1 << 0;
+pub const NBD_CMD_FLAG_NO_HOLE: u16 = 1 << 1;
+pub const NBD_CMD_FLAG_DF: u16 = 1 << 2;
+pub const NBD_CMD_FLAG_REQ_ONE: u16 = 1 << 3;
 // structured reply flags
-pub const NBD_REPLY_FLAG_DONE: u8 = 1 << 0;
+pub const NBD_REPLY_FLAG_DONE: u16 = 1 << 0;
 
 pub const NBD_EPERM: u8 = 1;
 pub const NBD_EIO: u8 = 5;
@@ -41,12 +41,12 @@ pub const NBD_ENOSPC: u8 = 28;
 pub const NBD_EOVERFLOW: u8 = 75;
 pub const NBD_ESHUTDOWN: u8 = 108;
 
-pub const NBD_REPLY_TYPE_NONE: u8 = 0;
-pub const NBD_REPLY_TYPE_OFFSET_DATA: u8 = 1;
-pub const NBD_REPLY_TYPE_OFFSET_HOLE: u8 = 2;
-pub const NBD_REPLY_TYPE_BLOCK_STATUS: u8 = 5;
-pub const NBD_REPLY_TYPE_ERROR: u8 = 2 ^ 15 + 1;
-pub const NBD_REPLY_TYPE_ERROR_OFFSET: u8 = 2 ^ 15 + 2;
+pub const NBD_REPLY_TYPE_NONE: u16 = 0;
+pub const NBD_REPLY_TYPE_OFFSET_DATA: u16 = 1;
+pub const NBD_REPLY_TYPE_OFFSET_HOLE: u16 = 2;
+pub const NBD_REPLY_TYPE_BLOCK_STATUS: u16 = 5;
+pub const NBD_REPLY_TYPE_ERROR: u16 = 2 ^ 15 + 1;
+pub const NBD_REPLY_TYPE_ERROR_OFFSET: u16 = 2 ^ 15 + 2;
 
 pub const NBD_REP_ACK: u32 = 1;
 pub const NBD_REP_SERVER: u32 = 2;

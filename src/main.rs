@@ -174,10 +174,17 @@ impl NBDServer {
         match req_type {
             proto::NBD_CMD_READ => { // 0
                 println!("NBD_CMD_READ");
-                println!("flags:{}, handle: {}, offset: {}, datalen: {}", flags, handle, offset, datalen);
+                println!("\t-->flags:{}, handle: {}, offset: {}, datalen: {}", flags, handle, offset, datalen);
                 let buffer = vec![0u8; datalen as usize];
-                self.simple_reply(clone_stream!(socket), 0u32, handle);
-                util::write_u32(datalen, clone_stream!(socket));
+                //self.simple_reply(clone_stream!(socket), 0u32, handle);
+                self.structured_reply(
+                    clone_stream!(socket),
+                    proto::NBD_REPLY_FLAG_DONE,
+                    proto::NBD_REPLY_TYPE_OFFSET_DATA,
+                    handle,
+                    datalen
+                );
+                util::write_u64(offset, clone_stream!(socket));
                 socket.write(&buffer).expect("Couldn't send data.");
             }
             proto::NBD_CMD_DISC => { // 2
@@ -189,9 +196,20 @@ impl NBDServer {
     }
 
     fn simple_reply(&mut self, socket: TcpStream, err_code: u32, handle: u64) {
-        util::write_u32(0x67446698u32, clone_stream!(socket)); // SIMPLE REPLY MAGIC
+        util::write_u32(0x67446698_u32, clone_stream!(socket)); // SIMPLE REPLY MAGIC
         util::write_u32(err_code, clone_stream!(socket));
         util::write_u64(handle, clone_stream!(socket));
+    }
+
+    fn structured_reply(&mut self, socket: TcpStream, flags: u16, reply_type: u16, handle: u64, length_of_payload: u32) {
+        util::write_u32(0x668e33ef_u32, clone_stream!(socket)); // STRUCTURED REPLY MAGIC
+        util::write_u16(flags, clone_stream!(socket));
+        util::write_u16(reply_type, clone_stream!(socket));
+        util::write_u64(handle, clone_stream!(socket));
+        util::write_u32(length_of_payload, clone_stream!(socket));
+        if length_of_payload > 0 {
+            clone_stream!(socket).write(&length_of_payload.to_be_bytes()).expect("Couldn't send length of data as bytes.");
+        }
     }
 
     /*
@@ -207,6 +225,7 @@ impl NBDServer {
 
     fn handle_option(&mut self, socket: TcpStream) {
         let option = util::read_u32(clone_stream!(socket));
+        println!("Option: {}", option);
         match option {
             proto::NBD_OPT_ABORT => {// 2
                 self.handle_opt_abort(clone_stream!(socket));
@@ -239,7 +258,7 @@ impl NBDServer {
             proto::NBD_OPT_SET_META_CONTEXT => {// 10
                 self.handle_opt_set_meta_context(clone_stream!(socket));
             }
-            1 | 3..=5 | 9 => eprintln!("Unimplemented OPT: {:?}", option),
+            1 | 3 | 4 | 5 | 9 => eprintln!("Unimplemented OPT: {:?}", option),
             _ => eprintln!("Option req not found."),
         }
     }
@@ -263,10 +282,10 @@ impl NBDServer {
         util::write_u16(proto::NBD_INFO_EXPORT, clone_stream!(socket));
         util::write_u64(volume_size, clone_stream!(socket)); // 32 bits, volume size
         util::write_u16(flags, clone_stream!(socket)); // 16 bits, transmission flags
-        println!("Export Data Sent:");
-        println!("\tNBD_INFO_EXPORT: \t{:?}", proto::NBD_INFO_EXPORT as u16);
-        println!("\tVolume Size: \t\t{:?}", volume_size as u32);
-        println!("\tTransmission Flags: \t{:?}", flags as u16);
+        println!("\t-->Export Data Sent:");
+        println!("\t-->\t-->NBD_INFO_EXPORT: \t{:?}", proto::NBD_INFO_EXPORT as u16);
+        println!("\t-->\t-->Volume Size: \t\t{:?}", volume_size as u32);
+        println!("\t-->\t-->Transmission Flags: \t{:?}", flags as u16);
     }
 
     fn reply_opt(
@@ -323,7 +342,7 @@ impl NBDServer {
         for _ in 0..info_req_count {
             info_reqs.push(util::read_u16(clone_stream!(socket)));
         }
-        println!("{:?}", info_reqs);
+        println!("\t-->Info Requests: {:?}", info_reqs);
 
         for req in &info_reqs {
             match *req {
@@ -361,10 +380,10 @@ impl NBDServer {
                         14
                     );
                     util::write_u16(proto::NBD_INFO_BLOCK_SIZE, clone_stream!(socket));
-                    util::write_u32(1024 as u32, clone_stream!(socket)); // 32 bits, minimum block size
-                    util::write_u32(4*1024*1024 as u32, clone_stream!(socket)); // 32 bits, preferred block size
-                    util::write_u32(4*1024*1024 as u32, clone_stream!(socket)); // 32 bits, maximum block size
-                    println!("Sent block size info");
+                    util::write_u32(1 as u32, clone_stream!(socket)); // 1B, minimum block size
+                    util::write_u32(4*1024 as u32, clone_stream!(socket)); // 4KB, preferred block size
+                    util::write_u32(32*1024*1024 as u32, clone_stream!(socket)); // 32MB, maximum block size
+                    println!("\t-->Sent block size info");
                     self.reply_info_export(clone_stream!(socket), opt);
                 }
                 r @ _ => {
@@ -379,15 +398,13 @@ impl NBDServer {
             }
         }
 
-        // Finally send an ACK.
         self.reply(
             clone_stream!(socket),
             opt,
             proto::NBD_REP_ACK,
             0
         );
-        util::write_u32(0 as u32, socket);
-        println!("Sent ACK")
+        util::write_u16(0_u16, socket);
     }
 
 
@@ -396,16 +413,16 @@ impl NBDServer {
         let export_name_length = util::read_u32(clone_stream!(socket));
         let export_name = util::read_string(export_name_length as usize, clone_stream!(socket));
         let number_of_queries = util::read_u32(clone_stream!(socket));
-        println!("total_length: {}, export_name_length: {}, export_name: {}, number_of_queries: {}", total_length, export_name_length, export_name, number_of_queries);
+        println!("\t-->total_length: {}, export_name_length: {}, export_name: {}, number_of_queries: {}", total_length, export_name_length, export_name, number_of_queries);
         if number_of_queries > 0 {
             for i in 0..number_of_queries {
                 let query_length = util::read_u32(clone_stream!(socket));
                 let query = util::read_string(query_length as usize, clone_stream!(socket));
-                println!("iter: {}, query: {}", i, query);
+                println!("\t-->\t-->iter: {}, query: {}", i + 1, query);
                 self.reply(
                     clone_stream!(socket),
                     proto::NBD_OPT_SET_META_CONTEXT,
-                    proto::NBD_REP_META_CONTEXT as u32,
+                    proto::NBD_REP_META_CONTEXT,
                     4 + query.len() as u32
                 );
                 let nbd_metadata_context_id = SystemTime::now()
@@ -413,7 +430,7 @@ impl NBDServer {
                     .unwrap()
                     .subsec_nanos();
                 util::write_u32(nbd_metadata_context_id, clone_stream!(socket));
-                clone_stream!(socket).write(query.to_lowercase().as_bytes());
+                clone_stream!(socket).write(query.to_lowercase().as_bytes()).expect("Couldn't send query data");
             }
         }
         self.reply(
