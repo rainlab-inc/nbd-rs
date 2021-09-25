@@ -1,6 +1,26 @@
 nbd-rs
 ======
 
+## Roadmap
+
+* [ ] 0.1 Successfully serve dummy empty file (filled with zeroes), enough to satisfy `qemu-img info`
+* [ ] 0.2 Serve a raw image read-only from a file
+  * [ ] consider mmap
+* [ ] 0.3 Read/Write access
+* [ ] 0.4 Shard image file into 4M chunks (my-image.{n}.chunk)
+  * [ ] Trim support (remove entire chunk object if trimmed)
+
+Stretch goals
+
+* [ ] Speed & BW optimizations, lazy disk-write, page-cache, etc.
+* [ ] Multi-volume support
+* [ ] Multi-connection support
+* [ ] Research Disconnect/Reconnection behavior
+* [ ] S3 backing support for shards
+* [ ] Stateless Multi-server support (S3 & Redis backend)
+  * Redis: state cache, etc. S3: storage
+* [ ] Encryption
+
 ## Build
 
 ```sh
