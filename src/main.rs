@@ -1,8 +1,12 @@
+use mmap_safe::MappedFile;
 // use std::io;
 // use std::io::prelude::*;
-use std::io::{Read, Write};
-use std::net::{SocketAddr, TcpListener, TcpStream}; //, Shutdown
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    io::{Read, Write},
+    fs::{OpenOptions},
+    net::{SocketAddr, TcpListener, TcpStream},
+    time::{SystemTime, UNIX_EPOCH}
+};
 //use std::collections::HashMap;
 
 // https://github.com/NetworkBlockDevice/nbd/blob/master/nbd-server.c#L2362-L2468
@@ -33,10 +37,16 @@ struct NBDOption {
 }
 */
 
-#[derive(Debug)]
+struct NBDExport {
+    name: String,
+    volume_size: u64,
+    pointer: MappedFile
+}
+
 struct NBDSession {
     socket: TcpStream,
     flags: [bool; 2],
+    export: Option<NBDExport>
     //request: Option<NBDRequest>,
     //option: Option<NBDOption>, // addr: SocketAddr,
                                // socket
@@ -44,7 +54,6 @@ struct NBDSession {
                                // remote
 }
 
-#[derive(Debug)]
 struct NBDServer {
     addr: SocketAddr,
     socket: TcpListener,
@@ -94,7 +103,8 @@ impl NBDServer {
         let flags = self.handshake(clone_stream!(socket));
         let session = NBDSession {
             socket: socket,
-            flags,
+            flags: flags,
+            export: None
             //request: None,
             //option: None,
             // addr,
@@ -179,9 +189,11 @@ impl NBDServer {
             proto::NBD_CMD_READ => { // 0
                 println!("NBD_CMD_READ");
                 println!("\t-->flags:{}, handle: {}, offset: {}, datalen: {}", flags, handle, offset, datalen);
-                let buffer = vec![0u8; datalen as usize];
+                let session = self.session.as_ref().unwrap();
+                let export = session.export.as_ref().unwrap();
+                let buffer = export.pointer.map(offset, datalen as usize).unwrap();
                 //self.simple_reply(clone_stream!(socket), 0u32, handle);
-                self.structured_reply(
+                NBDServer::structured_reply(
                     clone_stream!(socket),
                     proto::NBD_REPLY_FLAG_DONE,
                     proto::NBD_REPLY_TYPE_OFFSET_DATA,
@@ -206,7 +218,7 @@ impl NBDServer {
         util::write_u64(handle, clone_stream!(socket));
     }
 
-    fn structured_reply(&mut self, socket: TcpStream, flags: u16, reply_type: u16, handle: u64, length_of_payload: u32) {
+    fn structured_reply(socket: TcpStream, flags: u16, reply_type: u16, handle: u64, length_of_payload: u32) {
         util::write_u32(0x668e33ef_u32, clone_stream!(socket)); // STRUCTURED REPLY MAGIC
         util::write_u16(flags, clone_stream!(socket));
         util::write_u16(reply_type, clone_stream!(socket));
@@ -410,6 +422,26 @@ impl NBDServer {
             proto::NBD_REP_ACK,
             0
         );
+        if opt == proto::NBD_OPT_GO {
+            let f = OpenOptions::new()
+                .read(true)
+                .open(name.clone().to_lowercase())
+                .expect("Unable to open file");
+            let volume_size = f.metadata().unwrap().len();
+            println!("Volume Size of export {} is: <{}>", name.clone().to_lowercase(), volume_size);
+            let data = MappedFile::new(f).unwrap();
+            let export = NBDExport {
+                name: name,
+                volume_size: volume_size,
+                pointer: data
+            };
+            let session = self.session.as_ref().unwrap();
+            self.session = Some(NBDSession{
+                socket: session.socket.try_clone().expect("Error while cloning TCP Stream"),
+                flags: session.flags,
+                export: Some(export)
+            });
+        }
     }
 
 
