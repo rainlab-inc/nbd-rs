@@ -142,6 +142,10 @@ impl NBDServer {
                         break;
                     }
                 },
+                0x0 => {
+                    println!("Terminating connection.");
+                    break;
+                },
                 e => {
                     eprintln!(
                         "Error at NBD_REQUEST_MAGIC. Expected: 0x25609513 Got: {:?}",
@@ -188,6 +192,7 @@ impl NBDServer {
                 socket.write(&buffer).expect("Couldn't send data.");
             }
             proto::NBD_CMD_DISC => { // 2
+                // Terminate TLS
                 println!("NBD_CMD_DISC");
             }
             1 | 3..=8 => eprintln!("Unimplemented CMD: {:?}", req_type),
@@ -206,9 +211,10 @@ impl NBDServer {
         util::write_u16(flags, clone_stream!(socket));
         util::write_u16(reply_type, clone_stream!(socket));
         util::write_u64(handle, clone_stream!(socket));
-        util::write_u32(length_of_payload, clone_stream!(socket));
         if length_of_payload > 0 {
-            clone_stream!(socket).write(&length_of_payload.to_be_bytes()).expect("Couldn't send length of data as bytes.");
+            clone_stream!(socket).write(&(length_of_payload + 8).to_be_bytes()).expect("Couldn't send length of data as bytes.");
+        } else {
+            util::write_u32(length_of_payload, clone_stream!(socket));
         }
     }
 
@@ -284,7 +290,7 @@ impl NBDServer {
         util::write_u16(flags, clone_stream!(socket)); // 16 bits, transmission flags
         println!("\t-->Export Data Sent:");
         println!("\t-->\t-->NBD_INFO_EXPORT: \t{:?}", proto::NBD_INFO_EXPORT as u16);
-        println!("\t-->\t-->Volume Size: \t\t{:?}", volume_size as u32);
+        println!("\t-->\t-->Volume Size: \t{:?}", volume_size as u32);
         println!("\t-->\t-->Transmission Flags: \t{:?}", flags as u16);
     }
 
@@ -404,7 +410,6 @@ impl NBDServer {
             proto::NBD_REP_ACK,
             0
         );
-        util::write_u16(0_u16, socket);
     }
 
 
