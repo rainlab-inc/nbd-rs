@@ -247,6 +247,11 @@ impl NBDServer {
                 }
                 socket.write(&buffer).expect("Couldn't send data.");
             }
+            proto::NBD_CMD_WRITE => {
+                println!("NBD_CMD_WRITE");
+                println!("\t-->flags:{}, handle: {}, offset: {}, datalen: {}", flags, handle, offset, datalen);
+                NBDServer::simple_reply(clone_stream!(socket), proto::NBD_REP_ERR_UNSUP, handle);
+            }
             proto::NBD_CMD_BLOCK_STATUS => { // 7
                 // fsync
                 let session = self.session.as_ref().unwrap();
@@ -263,6 +268,12 @@ impl NBDServer {
                 util::write_u32(session.metadata_context_id, clone_stream!(socket));
                 util::write_u32(datalen, clone_stream!(socket));
                 util::write_u32(0, clone_stream!(socket));
+            }
+
+            proto::NBD_CMD_FLUSH => { // 2
+                // fsync
+                println!("NBD_CMD_FLUSH");
+                NBDServer::simple_reply(clone_stream!(socket), proto::NBD_REP_ERR_UNSUP, handle);
             }
             proto::NBD_CMD_DISC => { // 2
                 // Terminate TLS
