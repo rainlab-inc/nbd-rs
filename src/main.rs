@@ -239,7 +239,7 @@ impl NBDServer {
                         proto::NBD_REPLY_FLAG_DONE,
                         proto::NBD_REPLY_TYPE_OFFSET_DATA,
                         handle,
-                        datalen
+                        8 + datalen
                     );
                     util::write_u64(offset, clone_stream!(socket));
                 } else {
@@ -267,11 +267,7 @@ impl NBDServer {
         util::write_u16(flags, clone_stream!(socket));
         util::write_u16(reply_type, clone_stream!(socket));
         util::write_u64(handle, clone_stream!(socket));
-        if length_of_payload > 0 {
-            clone_stream!(socket).write(&(length_of_payload + 8).to_be_bytes()).expect("Couldn't send length of data as bytes.");
-        } else {
-            util::write_u32(length_of_payload, clone_stream!(socket));
-        }
+        util::write_u32(length_of_payload, clone_stream!(socket));
     }
 
     /*
