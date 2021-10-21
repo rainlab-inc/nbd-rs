@@ -405,7 +405,10 @@ impl NBDServer {
         let _len = util::read_u32(clone_stream!(socket));
         let namelen = util::read_u32(clone_stream!(socket));
         // if namelen > len - 6 { return NBD_EINVAL }
-        let name = util::read_string(namelen as usize, clone_stream!(socket));
+        let name = match namelen {
+            0 => "default".to_string(),
+            _ => util::read_string(namelen as usize, clone_stream!(socket)),
+        };
         let info_req_count = util::read_u16(clone_stream!(socket));
         let mut info_reqs = Vec::new();
         for _ in 0..info_req_count {
@@ -490,7 +493,10 @@ impl NBDServer {
     fn handle_opt_set_meta_context(&mut self, socket: TcpStream) {
         let total_length = util::read_u32(clone_stream!(socket));
         let export_name_length = util::read_u32(clone_stream!(socket));
-        let export_name = util::read_string(export_name_length as usize, clone_stream!(socket));
+        let export_name = match export_name_length {
+            0 => "default".to_string(),
+            _ => util::read_string(export_name_length as usize, clone_stream!(socket)),
+        };
         let number_of_queries = util::read_u32(clone_stream!(socket));
         println!("\t-->total_length: {}, export_name_length: {}, export_name: {}, number_of_queries: {}", total_length, export_name_length, export_name, number_of_queries);
         if number_of_queries > 0 {
