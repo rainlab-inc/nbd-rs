@@ -4,5 +4,6 @@ version = "0.1.0"
 authors = ["Furkan Mustafa <furkan@rainlab.co.jp>"]
 edition = "2018"
 
-#[dependencies]
+[dependencies]
+mmap-safe = "0.0.2"
 #byteorder = "1.3.4"
