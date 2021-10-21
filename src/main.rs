@@ -247,6 +247,23 @@ impl NBDServer {
                 }
                 socket.write(&buffer).expect("Couldn't send data.");
             }
+            proto::NBD_CMD_BLOCK_STATUS => { // 7
+                // fsync
+                let session = self.session.as_ref().unwrap();
+                let single_extent_only = (flags & proto::NBD_CMD_FLAG_REQ_ONE) != 0;
+                println!("NBD_CMD_BLOCK_STATUS");
+                println!("\t-->flags:{}, handle: {}, offset: {}, datalen: {}", flags, handle, offset, datalen);
+                NBDServer::structured_reply(
+                    clone_stream!(socket),
+                    proto::NBD_REPLY_FLAG_DONE,
+                    proto::NBD_REPLY_TYPE_BLOCK_STATUS,
+                    handle,
+                    12 //datalen
+                );
+                util::write_u32(session.metadata_context_id, clone_stream!(socket));
+                util::write_u32(datalen, clone_stream!(socket));
+                util::write_u32(0, clone_stream!(socket));
+            }
             proto::NBD_CMD_DISC => { // 2
                 // Terminate TLS
                 println!("NBD_CMD_DISC");
