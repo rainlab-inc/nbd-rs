@@ -75,6 +75,7 @@ impl NBDSession {
     fn mmap_file(self, name: String) -> Option<NBDSession> {
         let f = OpenOptions::new()
             .read(true)
+            .write(true)
             .open(name.clone())
             .expect("Unable to open file");
         let volume_size = f.metadata().unwrap().len();
@@ -225,15 +226,19 @@ impl NBDServer {
         let handle = util::read_u64(clone_stream!(socket));
         let offset = util::read_u64(clone_stream!(socket));
         let datalen = util::read_u32(clone_stream!(socket));
+        let structured_reply: bool = {
+            let session = self.session.as_ref().unwrap();
+            session.structured_reply
+        };
         match req_type {
             proto::NBD_CMD_READ => { // 0
                 println!("NBD_CMD_READ");
                 println!("\t-->flags:{}, handle: {}, offset: {}, datalen: {}", flags, handle, offset, datalen);
                 let session = self.session.as_ref().unwrap();
-                println!("STRUCTURED REPLY: {}", session.structured_reply);
+                println!("STRUCTURED REPLY: {}", structured_reply);
                 let export = session.export.as_ref().unwrap();
                 let buffer = export.pointer.map(offset, datalen as usize).unwrap();
-                if session.structured_reply == true {
+                if structured_reply == true {
                     NBDServer::structured_reply(
                         clone_stream!(socket),
                         proto::NBD_REPLY_FLAG_DONE,
@@ -247,10 +252,113 @@ impl NBDServer {
                 }
                 socket.write(&buffer).expect("Couldn't send data.");
             }
-            proto::NBD_CMD_WRITE => {
+            proto::NBD_CMD_WRITE => { // 1
                 println!("NBD_CMD_WRITE");
                 println!("\t-->flags:{}, handle: {}, offset: {}, datalen: {}", flags, handle, offset, datalen);
-                NBDServer::simple_reply(clone_stream!(socket), proto::NBD_REP_ERR_UNSUP, handle);
+                let mut data = vec![0; datalen as usize];
+                match clone_stream!(socket).read_exact(&mut data) {
+                    Ok(_) => {
+                        let mut session = self.session.take().unwrap();
+                        let export = session.export.take().unwrap();
+                        let mut pointer = export.pointer
+                            .into_mut_mapping(offset, datalen as usize)
+                            .map_err(|(e, _)| e)
+                            .unwrap();
+                        pointer.copy_from_slice(&data);
+                        if structured_reply == true {
+                            NBDServer::structured_reply(
+                                clone_stream!(socket),
+                                proto::NBD_REPLY_FLAG_DONE,
+                                proto::NBD_REPLY_TYPE_NONE,
+                                handle,
+                                0
+                            );
+                        } else {
+                            NBDServer::simple_reply(
+                                clone_stream!(socket),
+                                0_u32,
+                                handle
+                            );
+                        }
+                        self.session = Some(NBDSession {
+                            socket: session.socket,
+                            flags: session.flags,
+                            structured_reply: session.structured_reply,
+                            export: Some(NBDExport {
+                                    name: export.name,
+                                    volume_size: export.volume_size,
+                                    pointer: pointer.unmap()
+                            }),
+                            metadata_context_id: session.metadata_context_id
+                        });
+                    },
+                    Err(e) => {
+                        eprintln!("{}", e);
+                        if structured_reply == true {
+                            let err_msg = b"Could not receive the data. Please try again later";
+                            NBDServer::structured_reply(
+                                clone_stream!(socket),
+                                proto::NBD_REPLY_FLAG_DONE,
+                                proto::NBD_REPLY_TYPE_ERROR,
+                                handle,
+                                6 + err_msg.len() as u32
+                            );
+                            util::write_u32(proto::NBD_REP_ERR_UNKNOWN, clone_stream!(socket));
+                            util::write_u16(err_msg.len() as u16, clone_stream!(socket));
+                            write!(err_msg, socket);
+                        } else {
+                            NBDServer::simple_reply(
+                                clone_stream!(socket),
+                                proto::NBD_REP_ERR_UNKNOWN,
+                                handle
+                            );
+                        }
+                    }
+                }
+            }
+            proto::NBD_CMD_DISC => { // 2
+                // Terminate TLS
+                println!("NBD_CMD_DISC");
+            }
+            proto::NBD_CMD_FLUSH => { // 3
+                println!("NBD_CMD_FLUSH");
+                let mut session = self.session.take().unwrap();
+                let export = session.export.take().unwrap();
+                let pointer = export.pointer
+                    .into_mut_mapping(0, export.volume_size as usize)
+                    .map_err(|(e, _)| e)
+                    .unwrap();
+                /*
+                let mut session = self.session.take().unwrap();
+                let mut export = session.export.take().unwrap();
+                let pointer = BorrowMut::<MappedFile>::borrow_mut(&mut export.pointer);
+                */
+                match pointer.flush() {
+                    Ok(_) => println!("flushed"),
+                    Err(e) => eprintln!("{}", e)
+                }
+                if structured_reply == true {
+                    NBDServer::structured_reply(
+                        clone_stream!(socket),
+                        proto::NBD_REPLY_FLAG_DONE,
+                        proto::NBD_REPLY_TYPE_NONE,
+                        handle,
+                        0
+                    );
+                } else {
+                    NBDServer::simple_reply(clone_stream!(socket), 0_u32, handle);
+                }
+                self.session = Some(NBDSession {
+                    socket: session.socket,
+                    flags: session.flags,
+                    structured_reply: session.structured_reply,
+                    export: Some(NBDExport {
+                            name: export.name,
+                            volume_size: export.volume_size,
+                            pointer: pointer.unmap()
+                    }),
+                    metadata_context_id: session.metadata_context_id
+                });
             }
             proto::NBD_CMD_BLOCK_STATUS => { // 7
                 // fsync
@@ -268,16 +376,6 @@ impl NBDServer {
                 util::write_u32(session.metadata_context_id, clone_stream!(socket));
                 util::write_u32(datalen, clone_stream!(socket));
                 util::write_u32(0, clone_stream!(socket));
-            }
-
-            proto::NBD_CMD_FLUSH => { // 2
-                // fsync
-                println!("NBD_CMD_FLUSH");
-                NBDServer::simple_reply(clone_stream!(socket), proto::NBD_REP_ERR_UNSUP, handle);
-            }
-            proto::NBD_CMD_DISC => { // 2
-                // Terminate TLS
-                println!("NBD_CMD_DISC");
             }
             _ => {
                 eprintln!("Invalid/Unimplemented CMD: {:?}", req_type);
@@ -381,7 +479,6 @@ impl NBDServer {
             self.session = session.unwrap().mmap_file(name.clone().to_lowercase());
             volume_size = self.session.as_ref().unwrap().export.as_ref().unwrap().volume_size;
         } else {
-            let session = self.session.as_ref().unwrap();
             volume_size = self.session.as_ref().unwrap().export.as_ref().unwrap().volume_size;
         }
         let flags: u16 = proto::NBD_FLAG_HAS_FLAGS | proto::NBD_FLAG_SEND_FLUSH | proto::NBD_FLAG_SEND_RESIZE | proto::NBD_FLAG_SEND_WRITE_ZEROES | proto::NBD_FLAG_SEND_CACHE | proto::NBD_FLAG_SEND_TRIM;
