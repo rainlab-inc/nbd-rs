@@ -47,7 +47,9 @@ struct NBDSession {
     socket: TcpStream,
     flags: [bool; 2],
     structured_reply: bool,
-    export: Option<NBDExport>
+    export: Option<NBDExport>,
+    // TODO: contexts: list of active contexts with attached metadata_context_ids
+    metadata_context_id: u32,
     //request: Option<NBDRequest>,
     //option: Option<NBDOption>, // addr: SocketAddr,
                                // socket
@@ -63,7 +65,14 @@ impl NBDSession {
         }
     }
 
-    fn mmap_file(session: &NBDSession, name: String) -> Option<NBDSession> {
+    fn set_metadata_context_id(self, metadata_context_id: u32) -> Self {
+        NBDSession {
+            metadata_context_id: metadata_context_id,
+            ..self
+        }
+    }
+
+    fn mmap_file(self, name: String) -> Option<NBDSession> {
         let f = OpenOptions::new()
             .read(true)
             .open(name.clone())
@@ -77,10 +86,8 @@ impl NBDSession {
             pointer: data
         };
         Some(NBDSession{
-            socket: session.socket.try_clone().expect("Error while cloning TCP Stream"),
-            flags: session.flags,
-            structured_reply: session.structured_reply,
-            export: Some(export)
+            export: Some(export),
+            ..self
         })
     }
 }
@@ -136,7 +143,8 @@ impl NBDServer {
             socket: socket,
             flags: flags,
             structured_reply: false,
-            export: None
+            export: None,
+            metadata_context_id: 0,
             //request: None,
             //option: None,
             // addr,
@@ -336,8 +344,8 @@ impl NBDServer {
         let session = self.session.as_ref().unwrap();
         let mut volume_size: u64 = 256 * 1024 * 1024;
         if session.export.is_none() {
-            let session = self.session.as_ref().unwrap();
-            self.session = NBDSession::mmap_file(session, name.clone().to_lowercase());
+            let session = self.session.take();
+            self.session = session.unwrap().mmap_file(name.clone().to_lowercase());
             volume_size = self.session.as_ref().unwrap().export.as_ref().unwrap().volume_size;
         } else {
             let session = self.session.as_ref().unwrap();
@@ -476,8 +484,8 @@ impl NBDServer {
         if opt == proto::NBD_OPT_GO {
             let session = self.session.as_ref().unwrap();
             if session.export.is_none() {
-                let session = self.session.as_ref().unwrap();
-                self.session = NBDSession::mmap_file(session, name.clone().to_lowercase());
+                let session = self.session.take();
+                self.session = session.unwrap().mmap_file(name.clone().to_lowercase());
             }
         }
     }
@@ -504,6 +512,8 @@ impl NBDServer {
                     .duration_since(UNIX_EPOCH)
                     .unwrap()
                     .subsec_nanos();
+                let session = self.session.take();
+                self.session = Some(session.unwrap().set_metadata_context_id(nbd_metadata_context_id));
                 util::write_u32(nbd_metadata_context_id, clone_stream!(socket));
                 clone_stream!(socket).write(query.to_lowercase().as_bytes()).expect("Couldn't send query data");
             }
