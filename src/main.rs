@@ -251,8 +251,10 @@ impl NBDServer {
                 // Terminate TLS
                 println!("NBD_CMD_DISC");
             }
-            1 | 3..=8 => eprintln!("Unimplemented CMD: {:?}", req_type),
-            _ => eprintln!("Invalid CMD: {:?}", req_type)
+            _ => {
+                eprintln!("Invalid/Unimplemented CMD: {:?}", req_type);
+                NBDServer::simple_reply(clone_stream!(socket), proto::NBD_REP_ERR_UNSUP, handle);
+            }
         }
     }
 
@@ -318,8 +320,15 @@ impl NBDServer {
             proto::NBD_OPT_SET_META_CONTEXT => {// 10
                 self.handle_opt_set_meta_context(clone_stream!(socket));
             }
-            1 | 3 | 4 | 5 | 9 => eprintln!("Unimplemented OPT: {:?}", option),
-            _ => eprintln!("Option req not found."),
+            _ => {
+                eprintln!("Invalid/Unimplemented OPT: {:?}", option);
+                self.reply_opt(
+                    clone_stream!(socket),
+                    option,
+                    proto::NBD_REP_ERR_UNSUP,
+                    0,
+                );
+            }
         }
     }
 
