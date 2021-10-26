@@ -1,17 +1,17 @@
-use mmap_safe::MappedFile;
 // use std::io;
 // use std::io::prelude::*;
 use std::{
     io::{Read, Write},
-    fs::{OpenOptions},
     net::{SocketAddr, TcpListener, TcpStream},
     time::{SystemTime, UNIX_EPOCH}
 };
+use crate::storage::StorageBackend;
 //use std::collections::HashMap;
 
 // https://github.com/NetworkBlockDevice/nbd/blob/master/nbd-server.c#L2362-L2468
 // NBD_OPT_GO | NBD_OPT_INFO: https://github.com/NetworkBlockDevice/nbd/blob/master/nbd-server.c#L2276-L2353
 
+mod storage;
 mod proto;
 mod util;
 
@@ -37,17 +37,12 @@ struct NBDOption {
 }
 */
 
-struct NBDExport {
-    name: String,
-    volume_size: u64,
-    pointer: MappedFile
-}
-
 struct NBDSession {
     socket: TcpStream,
     flags: [bool; 2],
     structured_reply: bool,
-    export: Option<NBDExport>,
+    driver: Option<Box<dyn storage::StorageBackend>>,
+    driver_name: String,
     // TODO: contexts: list of active contexts with attached metadata_context_ids
     metadata_context_id: u32,
     //request: Option<NBDRequest>,
@@ -57,7 +52,30 @@ struct NBDSession {
                                // remote
 }
 
-impl NBDSession {
+impl<'a> NBDSession {
+    fn new(
+        socket: TcpStream,
+        flags: [bool; 2],
+        structured_reply: bool,
+        driver_name: String,
+        image_name: String,
+        metadata_context_id: u32
+    ) -> NBDSession {
+        let mut session = NBDSession {
+            socket: socket,
+            flags: flags,
+            structured_reply: structured_reply,
+            driver: None,
+            metadata_context_id: metadata_context_id,
+            driver_name: driver_name.clone()
+        };
+        if driver_name.as_str() != "" {
+            let driver = NBDSession::init_storage_driver(image_name, driver_name);
+            session.driver = driver;
+        }
+        session
+    }
+
     fn set_structured_reply(self) -> Self {
         NBDSession {
             structured_reply: true,
@@ -72,24 +90,16 @@ impl NBDSession {
         }
     }
 
-    fn mmap_file(self, name: String) -> Option<NBDSession> {
-        let f = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(name.clone())
-            .expect("Unable to open file");
-        let volume_size = f.metadata().unwrap().len();
-        println!("Volume Size of export {} is: <{}>", name.clone().to_lowercase(), volume_size);
-        let data = MappedFile::new(f).unwrap();
-        let export = NBDExport {
-            name: name,
-            volume_size: volume_size,
-            pointer: data
-        };
-        Some(NBDSession{
-            export: Some(export),
-            ..self
-        })
+    fn init_storage_driver(image_name: String, driver_name: String) -> Option<Box<dyn StorageBackend>> {
+        match driver_name.as_str() {
+            "mmap" => {
+                Some(Box::new(storage::MmapBackend::new(image_name.clone())))
+            },
+            _ => {
+                println!("Couldn't find storage driver: <{}>", driver_name);
+                None
+            }
+        }
     }
 }
 
@@ -101,7 +111,7 @@ struct NBDServer {
     port: u16,
 }
 
-impl NBDServer {
+impl<'a> NBDServer {
     fn new(host: String, port: u16) -> NBDServer {
         let addr: SocketAddr = format!("{}:{}", host, port).parse().unwrap();
         let socket_addr = addr.clone();
@@ -140,16 +150,7 @@ impl NBDServer {
     fn handle_connection(&mut self, socket: TcpStream /*, addr: SocketAddr*/) {
         // TODO: Process socket
         let flags = self.handshake(clone_stream!(socket));
-        let session = NBDSession {
-            socket: socket,
-            flags: flags,
-            structured_reply: false,
-            export: None,
-            metadata_context_id: 0,
-            //request: None,
-            //option: None,
-            // addr,
-        };
+        let session = NBDSession::new(socket, flags, false, String::from(""), String::from(""), 0);
         self.session = Some(session);
         println!("Connection established!");
     }
@@ -236,8 +237,8 @@ impl NBDServer {
                 println!("\t-->flags:{}, handle: {}, offset: {}, datalen: {}", flags, handle, offset, datalen);
                 let session = self.session.as_ref().unwrap();
                 println!("STRUCTURED REPLY: {}", structured_reply);
-                let export = session.export.as_ref().unwrap();
-                let buffer = export.pointer.map(offset, datalen as usize).unwrap();
+                let driver = session.driver.as_ref().unwrap();
+                let buffer = driver.read(offset, datalen as usize);
                 if structured_reply == true {
                     NBDServer::structured_reply(
                         clone_stream!(socket),
@@ -259,12 +260,9 @@ impl NBDServer {
                 match clone_stream!(socket).read_exact(&mut data) {
                     Ok(_) => {
                         let mut session = self.session.take().unwrap();
-                        let export = session.export.take().unwrap();
-                        let mut pointer = export.pointer
-                            .into_mut_mapping(offset, datalen as usize)
-                            .map_err(|(e, _)| e)
-                            .unwrap();
-                        pointer.copy_from_slice(&data);
+                        let mut driver = session.driver.take().unwrap();
+                        let driver_name = driver.get_name();
+                        driver.write(offset, datalen as usize, &data);
                         if structured_reply == true {
                             NBDServer::structured_reply(
                                 clone_stream!(socket),
@@ -281,14 +279,11 @@ impl NBDServer {
                             );
                         }
                         self.session = Some(NBDSession {
-                            socket: session.socket,
+                            socket: clone_stream!(socket),
                             flags: session.flags,
                             structured_reply: session.structured_reply,
-                            export: Some(NBDExport {
-                                    name: export.name,
-                                    volume_size: export.volume_size,
-                                    pointer: pointer.unmap()
-                            }),
+                            driver: Some(driver),
+                            driver_name: driver_name,
                             metadata_context_id: session.metadata_context_id
                         });
                     },
@@ -319,21 +314,26 @@ impl NBDServer {
             proto::NBD_CMD_DISC => { // 2
                 // Terminate TLS
                 println!("NBD_CMD_DISC");
+                let mut session = self.session.take().unwrap();
+                let mut driver = session.driver.take();
+                if driver.is_some() {
+                    driver.unwrap().close();
+                }
+                self.session = Some(NBDSession::new(
+                    clone_stream!(socket),
+                    session.flags,
+                    session.structured_reply,
+                    String::from(""),
+                    String::from(""),
+                    session.metadata_context_id
+                ));
             }
             proto::NBD_CMD_FLUSH => { // 3
                 println!("NBD_CMD_FLUSH");
                 let mut session = self.session.take().unwrap();
-                let export = session.export.take().unwrap();
-                let pointer = export.pointer
-                    .into_mut_mapping(0, export.volume_size as usize)
-                    .map_err(|(e, _)| e)
-                    .unwrap();
-                /*
-                let mut session = self.session.take().unwrap();
-                let mut export = session.export.take().unwrap();
-                let pointer = BorrowMut::<MappedFile>::borrow_mut(&mut export.pointer);
-                */
-                match pointer.flush() {
+                let mut driver = session.driver.take().unwrap();
+                let driver_name = driver.get_name();
+                match driver.flush(0, driver.get_volume_size() as usize) {
                     Ok(_) => println!("flushed"),
                     Err(e) => eprintln!("{}", e)
                 }
@@ -349,14 +349,11 @@ impl NBDServer {
                     NBDServer::simple_reply(clone_stream!(socket), 0_u32, handle);
                 }
                 self.session = Some(NBDSession {
-                    socket: session.socket,
+                    socket: clone_stream!(socket),
                     flags: session.flags,
                     structured_reply: session.structured_reply,
-                    export: Some(NBDExport {
-                            name: export.name,
-                            volume_size: export.volume_size,
-                            pointer: pointer.unmap()
-                    }),
+                    driver: Some(driver),
+                    driver_name: driver_name,
                     metadata_context_id: session.metadata_context_id
                 });
             }
@@ -474,12 +471,19 @@ impl NBDServer {
         );
         let session = self.session.as_ref().unwrap();
         let mut volume_size: u64 = 256 * 1024 * 1024;
-        if session.export.is_none() {
-            let session = self.session.take();
-            self.session = session.unwrap().mmap_file(name.clone().to_lowercase());
-            volume_size = self.session.as_ref().unwrap().export.as_ref().unwrap().volume_size;
+        if session.driver.is_none() {
+            let session = self.session.as_ref().unwrap();
+            self.session = Some(NBDSession::new(
+                clone_stream!(socket),
+                session.flags,
+                session.structured_reply,
+                String::from("mmap"),
+                name.clone().to_lowercase(),
+                session.metadata_context_id
+            ));
+            volume_size = self.session.as_ref().unwrap().driver.as_ref().unwrap().get_volume_size();
         } else {
-            volume_size = self.session.as_ref().unwrap().export.as_ref().unwrap().volume_size;
+            volume_size = self.session.as_ref().unwrap().driver.as_ref().unwrap().get_volume_size();
         }
         let flags: u16 = proto::NBD_FLAG_HAS_FLAGS | proto::NBD_FLAG_SEND_FLUSH | proto::NBD_FLAG_SEND_RESIZE | proto::NBD_FLAG_SEND_WRITE_ZEROES | proto::NBD_FLAG_SEND_CACHE | proto::NBD_FLAG_SEND_TRIM;
         util::write_u16(proto::NBD_INFO_EXPORT, clone_stream!(socket));
@@ -615,11 +619,18 @@ impl NBDServer {
             0
         );
         if opt == proto::NBD_OPT_GO {
-            let session = self.session.as_ref().unwrap();
-            if session.export.is_none() {
-                let session = self.session.take();
-                self.session = session.unwrap().mmap_file(name.clone().to_lowercase());
+            let mut session = self.session.take().unwrap();
+            if session.driver.is_some() {
+                session.driver.take().unwrap().close();
             }
+            self.session = Some(NBDSession::new(
+                clone_stream!(socket),
+                session.flags,
+                session.structured_reply,
+                String::from("mmap"),
+                name.clone(),
+                session.metadata_context_id
+            ));
         }
     }
 
