@@ -1,5 +1,5 @@
 use std::{
-    fs::{OpenOptions},
+    fs::{File, OpenOptions},
     path::{Path},
     io::{Read, Write, Seek, SeekFrom, Error, ErrorKind}
 };
@@ -133,7 +133,7 @@ impl ShardedFile {
 
 impl StorageBackend for ShardedFile {
     fn init(&mut self, name: String) {
-        let path = Path::new(&self.storage_path);
+        let path = Path::new(&self.storage_path).join(name.clone());
         if !path.is_dir() | !path.exists() {
             eprintln!("No directory found: '{}'", path.display());
         }
@@ -172,12 +172,16 @@ impl StorageBackend for ShardedFile {
                     file.seek(SeekFrom::Start(offset % self.shard_size));
                 }
             } else if i == end {
+                let read_size = ((length as u64 + offset % self.shard_size) % self.shard_size) as usize;
                 if file_not_exists {
-                    let read_size = (offset % self.shard_size) as usize;
                     buffer.extend_from_slice(&vec![0_u8; read_size]);
                     continue;
                 } else {
-                    file.read_exact(&mut buffer);
+                    let mut fill_buffer = vec![0_u8; read_size];
+                    file.read_exact(&mut fill_buffer);
+                    buffer.extend_from_slice(&fill_buffer);
+                    //file.read_exact(&mut buffer);
+                    continue;
                 }
             }
             if file_not_exists {
@@ -193,23 +197,66 @@ impl StorageBackend for ShardedFile {
         let start = self.shard_index(offset);
         let end = self.shard_index(offset + length as u64);
         for i in start..=end {
-            let path = Path::new(&self.storage_path)
-                .join(self.name.clone())
-                .join("-")
-                .join(i.to_string());
             let mut file = OpenOptions::new()
                 .write(true)
-                .open(path)
-                .unwrap();
-            if i == self.shard_index(offset) {
-                file.seek(SeekFrom::Start(offset % self.shard_size));
+                .open(Path::new(&self.storage_path)
+                    .join(self.name.clone())
+                    .join("-")
+                    .join(i.to_string())
+                ).unwrap();
+            let file_not_exists = !file.metadata().unwrap().is_file();
+            if file_not_exists {
+                file = File::create(Path::new(&self.storage_path)
+                    .join(self.name.clone())
+                    .join("-")
+                    .join(i.to_string())
+                    ).unwrap();
             }
             let range_start = (offset % self.shard_size + (i as u64) * self.shard_size) as usize;
             let range_end = (offset % self.shard_size + (i as u64 + 1) * self.shard_size) as usize;
+
+            if i == start {
+                let read_size = (self.shard_size - offset % self.shard_size) as usize;
+                if file_not_exists {
+                    let zeroes: Vec<u8> = vec![0_u8; self.shard_size as usize - read_size];
+                    let mut buffer: Vec<u8> = Vec::new();
+                    buffer.extend_from_slice(&zeroes);
+                    buffer.extend_from_slice(&data[0..read_size]);
+                    file.write_all(&buffer)?;
+                    //file.sync_all()?
+                    continue;
+                } else {
+                    file.seek(SeekFrom::Start(offset % self.shard_size));
+                    file.write_all(&data[0..read_size])?;
+                    //file.sync_all()?;
+                    continue;
+                }
+            } else if i == end {
+                let read_size = ((length as u64 + offset % self.shard_size) % self.shard_size) as usize;
+                if file_not_exists {
+                    let zeroes: Vec<u8> = vec![0_u8; self.shard_size as usize - read_size];
+                    let mut buffer: Vec<u8> = Vec::new();
+                    buffer.extend_from_slice(&data[range_start..(range_start + read_size)]);
+                    buffer.extend_from_slice(&zeroes);
+                    file.write_all(&buffer)?;
+                    //file.sync_all()?
+                    continue;
+                } else {
+                    file.write_all(&data[range_start..(range_start + read_size)])?;
+                    //file.sync_all()?
+                    continue;
+                }
+            }
             let err = file.write(&data[range_start..range_end]);
             if err.is_err() {
                 return Err(Error::new(ErrorKind::Other, format!("Error at file: '{:?}'. {:?}", self.name.clone(), err)))
             }
+            /*
+            err = file.sync_all();
+            if err.is_err() {
+                return Err(Error::new(ErrorKind::Other, format!("Error at file: '{:?}'. {:?}", self.name.clone(), err)))
+            }
+            */
         }
         Ok(())
     }
