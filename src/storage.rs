@@ -132,19 +132,25 @@ impl ShardedFile {
         (offset / &self.shard_size) as usize
     }
 
-    pub fn size_of_directory(&self, dir: &Path) -> u64 {
-        let volume_size: u64 = std::fs::read_dir(dir).unwrap().count() as u64 * &self.shard_size;
+    pub fn size_of_volume(&self, dir: &Path) -> u64 {
+        let path = dir.join("size");
+        if !path.is_file() | !path.exists() {
+            eprintln!("No metadata file found: '{}'", path.display());
+        }
+        let mut string = std::fs::read_to_string(path).unwrap();
+        string.retain(|c| !c.is_whitespace());
+        let volume_size: u64 = string.parse().unwrap();
         volume_size
     }
 }
 
 impl StorageBackend for ShardedFile {
     fn init(&mut self, name: String) {
-        let path = Path::new(&self.storage_path).join(name.clone());
+        let path = Path::new(&self.storage_path).join(self.name.clone());
         if !path.is_dir() | !path.exists() {
             eprintln!("No directory found: '{}'", path.display());
         }
-        self.volume_size = self.size_of_directory(&path);
+        self.volume_size = self.size_of_volume(&path);
     }
 
     fn get_name(&self) -> String {
