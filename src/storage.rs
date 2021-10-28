@@ -1,6 +1,10 @@
 use std::{
-    fs::{OpenOptions}
+    fs::{File, OpenOptions},
+    path::{Path},
+    io::{Read, Write, Seek, SeekFrom, Error, ErrorKind}
 };
+
+extern crate libc;
 
 use mmap_safe::{MappedFile};
 
@@ -13,12 +17,14 @@ pub trait StorageBackend {
 
     fn read(&self, offset: u64, length: usize) -> Vec<u8>;
 
-    fn write(&mut self, offset: u64, length: usize, data: &[u8]) -> Result<(), String>;
+    fn write(&mut self, offset: u64, length: usize, data: &[u8]) -> Result<(), Error>;
 
-    fn flush(&mut self, offset: u64, length: usize) -> Result<(), String>;
+    fn flush(&mut self, offset: u64, length: usize) -> Result<(), Error>;
 
     fn close(&mut self);
 }
+
+// Driver: MmapBackend
 
 pub struct MmapBackend {
     name: String,
@@ -69,7 +75,7 @@ impl<'a> StorageBackend for MmapBackend {
         buffer
     }
 
-    fn write(&mut self, offset: u64, length: usize, data: &[u8]) -> Result<(), String> {
+    fn write(&mut self, offset: u64, length: usize, data: &[u8]) -> Result<(), Error> {
         let pointer = self.pointer.take();
         let mut mut_pointer = pointer
             .unwrap()
@@ -81,7 +87,7 @@ impl<'a> StorageBackend for MmapBackend {
         Ok(())
     }
 
-    fn flush(&mut self, offset: u64, length: usize) -> Result<(), String> {
+    fn flush(&mut self, offset: u64, length: usize) -> Result<(), Error> {
         let pointer = self.pointer.take();
         let mut_pointer = pointer
             .unwrap()
@@ -99,5 +105,223 @@ impl<'a> StorageBackend for MmapBackend {
     fn close(&mut self) {
         let pointer = self.pointer.as_ref().unwrap();
         drop(pointer);
+    }
+}
+
+// Driver: ShardedFile
+
+pub struct ShardedFile {
+    name: String,
+    volume_size: u64,
+    shard_size: u64,
+    storage_path: String
+}
+
+impl ShardedFile {
+    pub fn new(name: String, path: String) -> ShardedFile {
+        let default_shard_size: u64 = 4 * 1024 * 1024;
+        let mut sharded_file = ShardedFile {
+            name: name.clone(),
+            volume_size: 0_u64,
+            shard_size: default_shard_size,
+            storage_path: path
+        };
+        sharded_file.init(name);
+        sharded_file
+    }
+
+    pub fn shard_index(&self, offset: u64) -> usize {
+        (offset / &self.shard_size) as usize
+    }
+
+    pub fn size_of_volume(&self, dir: &Path) -> u64 {
+        let path = dir.join("size");
+        if !path.is_file() | !path.exists() {
+            eprintln!("No metadata file found: '{}'", path.display());
+        }
+        let mut string = std::fs::read_to_string(path).unwrap();
+        string.retain(|c| !c.is_whitespace());
+        let volume_size: u64 = string.parse().unwrap();
+        volume_size
+    }
+}
+
+impl StorageBackend for ShardedFile {
+    fn init(&mut self, name: String) {
+        let path = Path::new(&self.storage_path).join(self.name.clone());
+        if !path.is_dir() | !path.exists() {
+            eprintln!("No directory found: '{}'", path.display());
+        }
+        self.volume_size = self.size_of_volume(&path);
+    }
+
+    fn get_name(&self) -> String {
+        self.name.clone()
+    }
+
+    fn get_volume_size(&self) -> u64 {
+        self.volume_size
+    }
+
+    fn read(&self, offset: u64, length: usize) -> Vec<u8> {
+        let mut buffer: Vec<u8> = Vec::new();
+        let start = self.shard_index(offset);
+        let end = if 0 == (offset + length as u64) % self.shard_size {
+            self.shard_index(offset + length as u64) - 1
+        } else {
+            self.shard_index(offset + length as u64)
+        };
+        println!("Start: {}, End: {}", start, end);
+        for i in start..=end {
+            println!("Iteration: {}", i);
+            let path = Path::new(&self.storage_path)
+                .join(self.name.clone())
+                .join(format!("{}-{}", self.name.clone(), i.to_string()));
+            let file_not_exists = !&path.is_file();
+            if !file_not_exists {
+                let mut file = OpenOptions::new()
+                    .read(true)
+                    .open(path)
+                    .unwrap();
+                if i == start {
+                    let read_size = std::cmp::min((self.shard_size - offset % self.shard_size) as usize, length);
+                    file.seek(SeekFrom::Start(offset % self.shard_size));
+                    buffer.extend_from_slice(&vec![0_u8; read_size]);
+                    file.read_exact(&mut buffer);
+                    continue;
+                }
+                if i == end {
+                    let read_size = ((length as u64 + offset % self.shard_size) % self.shard_size) as usize;
+                    let mut fill_buffer = vec![0_u8; read_size];
+                    file.read_exact(&mut fill_buffer);
+                    buffer.extend_from_slice(&fill_buffer);
+                    //file.read_exact(&mut buffer);
+                    continue;
+                }
+                file.read_to_end(&mut buffer).expect(&format!("couldn't read from file: {:?}-{}", self.name.clone(), i.to_string()));
+            } else {
+                if i == start {
+                    let read_size = std::cmp::min((self.shard_size - offset % self.shard_size) as usize, length);
+                    if file_not_exists {
+                        buffer.extend_from_slice(&vec![0_u8; read_size]);
+                        continue;
+                    }
+                }
+                if i == end {
+                    let read_size = ((length as u64 + offset % self.shard_size) % self.shard_size) as usize;
+                    if file_not_exists {
+                        buffer.extend_from_slice(&vec![0_u8; read_size]);
+                        continue;
+                    }
+                }
+                buffer.extend_from_slice(&vec![0_u8; self.shard_size as usize]);
+            }
+        }
+        buffer
+    }
+
+    fn write(&mut self, offset: u64, length: usize, data: &[u8]) -> Result<(), Error> {
+        let start = self.shard_index(offset);
+        let end = if 0 == (offset + length as u64) % self.shard_size {
+            self.shard_index(offset + length as u64) - 1
+        } else {
+            self.shard_index(offset + length as u64)
+        };
+        println!("Start: {}, End: {}", start, end);
+        for i in start..=end {
+            println!("Iteration: {}", i);
+            let path = Path::new(&self.storage_path)
+                .join(self.name.clone())
+                .join(format!("{}-{}", self.name.clone(), i.to_string()));
+            let file_not_exists = !&path.is_file();
+            let mut file = OpenOptions::new()
+                .write(true)
+                .create(true)
+                .open(path)
+                .unwrap();
+            let range_start = (offset % self.shard_size + (i as u64) * self.shard_size) as usize;
+            let range_end = (offset % self.shard_size + (i as u64 + 1) * self.shard_size) as usize;
+
+            if i == start {
+                let read_size = std::cmp::min((self.shard_size - offset % self.shard_size) as usize, length);
+                if file_not_exists {
+                    let zeroes: Vec<u8> = vec![0_u8; self.shard_size as usize - read_size];
+                    let mut buffer: Vec<u8> = Vec::new();
+                    buffer.extend_from_slice(&zeroes);
+                    buffer.extend_from_slice(&data[0..read_size]);
+                    file.write_all(&buffer)?;
+                    //file.sync_all()?
+                    continue;
+                } else {
+                    file.seek(SeekFrom::Start(offset % self.shard_size));
+                    file.write_all(&data[0..read_size])?;
+                    //file.sync_all()?;
+                    continue;
+                }
+            } else if i == end {
+                let read_size = ((length as u64 + offset % self.shard_size) % self.shard_size) as usize;
+                if file_not_exists {
+                    let zeroes: Vec<u8> = vec![0_u8; self.shard_size as usize - read_size];
+                    let mut buffer: Vec<u8> = Vec::new();
+                    buffer.extend_from_slice(&data[range_start..(range_start + read_size)]);
+                    buffer.extend_from_slice(&zeroes);
+                    file.write_all(&buffer)?;
+                    //file.sync_all()?
+                    continue;
+                } else {
+                    file.write_all(&data[range_start..(range_start + read_size)])?;
+                    //file.sync_all()?
+                    continue;
+                }
+            }
+            let err = file.write(&data[range_start..range_end]);
+            if err.is_err() {
+                return Err(Error::new(ErrorKind::Other, format!("Error at file: '{:?}'. {:?}", self.name.clone(), err)))
+            }
+            /*
+            err = file.sync_all();
+            if err.is_err() {
+                return Err(Error::new(ErrorKind::Other, format!("Error at file: '{:?}'. {:?}", self.name.clone(), err)))
+            }
+            */
+        }
+        Ok(())
+    }
+
+    fn flush(&mut self, offset: u64, length: usize) -> Result<(), Error> {
+        unsafe{ libc::sync(); }
+        /*
+        let start = self.shard_index(offset);
+        let end = if 0 == (offset + length as u64) % self.shard_size {
+            self.shard_index(offset + length as u64) - 1
+        } else {
+            self.shard_index(offset + length as u64)
+        };
+        let mut result = Ok(());
+        for i in start..=end {
+            let path = Path::new(&self.storage_path)
+                .join(self.name.clone())
+                .join(format!("{}-{}", self.name.clone(), i.to_string()));
+            let file_not_exists = !&path.is_file();
+            if file_not_exists {
+                println!("File does not exist: '{:?}'", path.display());
+                continue;
+            }
+            let file = OpenOptions::new()
+                .write(true)
+                .open(path)
+                .unwrap();
+            result = file.sync_all();
+            if result.is_err() {
+                break;
+            }
+        }
+        result
+        */
+        Ok(())
+    }
+
+    fn close(&mut self) {
+        println!("Closed");
     }
 }
