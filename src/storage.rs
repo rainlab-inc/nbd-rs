@@ -4,6 +4,8 @@ use std::{
     io::{Read, Write, Seek, SeekFrom, Error, ErrorKind}
 };
 
+extern crate libc;
+
 use mmap_safe::{MappedFile};
 
 pub trait StorageBackend {
@@ -287,6 +289,8 @@ impl StorageBackend for ShardedFile {
     }
 
     fn flush(&mut self, offset: u64, length: usize) -> Result<(), Error> {
+        unsafe{ libc::sync(); }
+        /*
         let start = self.shard_index(offset);
         let end = if 0 == (offset + length as u64) % self.shard_size {
             self.shard_index(offset + length as u64) - 1
@@ -313,6 +317,8 @@ impl StorageBackend for ShardedFile {
             }
         }
         result
+        */
+        Ok(())
     }
 
     fn close(&mut self) {

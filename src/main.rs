@@ -95,6 +95,9 @@ impl<'a> NBDSession {
             "mmap" => {
                 Some(Box::new(storage::MmapBackend::new(image_name.clone())))
             },
+            "sharded" => {
+                Some(Box::new(storage::ShardedFile::new(image_name.to_lowercase().clone(), String::from("test"))))
+            }
             _ => {
                 println!("Couldn't find storage driver: <{}>", driver_name);
                 None
@@ -477,7 +480,7 @@ impl<'a> NBDServer {
                 clone_stream!(socket),
                 session.flags,
                 session.structured_reply,
-                String::from("mmap"),
+                String::from("sharded"),
                 name.clone().to_lowercase(),
                 session.metadata_context_id
             ));
@@ -618,16 +621,13 @@ impl<'a> NBDServer {
             proto::NBD_REP_ACK,
             0
         );
-        if opt == proto::NBD_OPT_GO {
+        if (opt == proto::NBD_OPT_GO) & (self.session.as_ref().unwrap().driver.is_none()) {
             let mut session = self.session.take().unwrap();
-            if session.driver.is_some() {
-                session.driver.take().unwrap().close();
-            }
             self.session = Some(NBDSession::new(
                 clone_stream!(socket),
                 session.flags,
                 session.structured_reply,
-                String::from("mmap"),
+                String::from("sharded"),
                 name.clone(),
                 session.metadata_context_id
             ));
