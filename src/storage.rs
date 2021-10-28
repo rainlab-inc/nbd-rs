@@ -175,8 +175,8 @@ impl StorageBackend for ShardedFile {
             let path = Path::new(&self.storage_path)
                 .join(self.name.clone())
                 .join(format!("{}-{}", self.name.clone(), i.to_string()));
-            let file_not_exists = &path.is_file();
-            if !*file_not_exists {
+            let file_not_exists = !&path.is_file();
+            if !file_not_exists {
                 let mut file = OpenOptions::new()
                     .read(true)
                     .open(path)
@@ -200,14 +200,14 @@ impl StorageBackend for ShardedFile {
             } else {
                 if i == start {
                     let read_size = std::cmp::min((self.shard_size - offset % self.shard_size) as usize, length);
-                    if *file_not_exists {
+                    if file_not_exists {
                         buffer.extend_from_slice(&vec![0_u8; read_size]);
                         continue;
                     }
                 }
                 if i == end {
                     let read_size = ((length as u64 + offset % self.shard_size) % self.shard_size) as usize;
-                    if *file_not_exists {
+                    if file_not_exists {
                         buffer.extend_from_slice(&vec![0_u8; read_size]);
                         continue;
                     }
@@ -220,28 +220,28 @@ impl StorageBackend for ShardedFile {
 
     fn write(&mut self, offset: u64, length: usize, data: &[u8]) -> Result<(), Error> {
         let start = self.shard_index(offset);
-        let end = self.shard_index(offset + length as u64);
+        let end = if 0 == (offset + length as u64) % self.shard_size {
+            self.shard_index(offset + length as u64) - 1
+        } else {
+            self.shard_index(offset + length as u64)
+        };
+        println!("Start: {}, End: {}", start, end);
         for i in start..=end {
+            println!("Iteration: {}", i);
+            let path = Path::new(&self.storage_path)
+                .join(self.name.clone())
+                .join(format!("{}-{}", self.name.clone(), i.to_string()));
+            let file_not_exists = !&path.is_file();
             let mut file = OpenOptions::new()
                 .write(true)
-                .open(Path::new(&self.storage_path)
-                    .join(self.name.clone())
-                    .join("-")
-                    .join(i.to_string())
-                ).unwrap();
-            let file_not_exists = !file.metadata().unwrap().is_file();
-            if file_not_exists {
-                file = File::create(Path::new(&self.storage_path)
-                    .join(self.name.clone())
-                    .join("-")
-                    .join(i.to_string())
-                    ).unwrap();
-            }
+                .create(true)
+                .open(path)
+                .unwrap();
             let range_start = (offset % self.shard_size + (i as u64) * self.shard_size) as usize;
             let range_end = (offset % self.shard_size + (i as u64 + 1) * self.shard_size) as usize;
 
             if i == start {
-                let read_size = (self.shard_size - offset % self.shard_size) as usize;
+                let read_size = std::cmp::min((self.shard_size - offset % self.shard_size) as usize, length);
                 if file_not_exists {
                     let zeroes: Vec<u8> = vec![0_u8; self.shard_size as usize - read_size];
                     let mut buffer: Vec<u8> = Vec::new();
@@ -288,14 +288,23 @@ impl StorageBackend for ShardedFile {
 
     fn flush(&mut self, offset: u64, length: usize) -> Result<(), Error> {
         let start = self.shard_index(offset);
-        let end = self.shard_index(offset + length as u64);
+        let end = if 0 == (offset + length as u64) % self.shard_size {
+            self.shard_index(offset + length as u64) - 1
+        } else {
+            self.shard_index(offset + length as u64)
+        };
         let mut result = Ok(());
         for i in start..=end {
             let path = Path::new(&self.storage_path)
                 .join(self.name.clone())
-                .join("-")
-                .join(i.to_string());
+                .join(format!("{}-{}", self.name.clone(), i.to_string()));
+            let file_not_exists = !&path.is_file();
+            if file_not_exists {
+                println!("File does not exist: '{:?}'", path.display());
+                continue;
+            }
             let file = OpenOptions::new()
+                .write(true)
                 .open(path)
                 .unwrap();
             result = file.sync_all();
