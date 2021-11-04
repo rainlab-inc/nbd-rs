@@ -731,13 +731,16 @@ fn main() {
 Sets the export(s) via `export` argument. Must be used at least once."),
         )
         .get_matches();
-    let vals: Vec<&str> = matches.values_of("export").unwrap().collect();
+    let vals: Vec<String> = matches.values_of("export")
+        .unwrap()
+        .map(|val| val.to_string())
+        .collect();
     let mut exports: Vec<NBDExport> = Vec::new();
     for i in 0..(matches.occurrences_of("export") as usize) {
         exports.push(NBDExport::new(
-            String::from(vals[i * 3]),
-            String::from(vals[i * 3 + 1]),
-            String::from(vals[i * 3 + 2])
+            vals[i * 3].clone(),
+            vals[i * 3 + 1].clone(),
+            vals[i * 3 + 2].clone()
         ));
     }
     let mut server = NBDServer::new("0.0.0.0".to_string(), 10809, exports);
