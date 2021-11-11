@@ -8,6 +8,8 @@ extern crate libc;
 
 use mmap_safe::{MappedFile};
 
+use crate::object::ObjectStorage;
+
 pub trait StorageBackend {
     fn init(&mut self, name: String);
 
@@ -30,6 +32,7 @@ pub struct MmapBackend {
     name: String,
     volume_size: u64,
     pointer: Option<MappedFile>
+    objectStorage: Option<Box<dyn object::ObjectStorage>>,
 }
 
 impl MmapBackend {
@@ -49,15 +52,12 @@ impl<'a> StorageBackend for MmapBackend {
         if self.pointer.is_some() {
             return ()
         }
-        let f = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(name.to_lowercase().clone())
-            .expect("Unable to open file");
-        let volume_size = f.metadata().unwrap().len();
-        println!("Volume Size of export {} is: <{}>", name.clone().to_lowercase(), volume_size);
-        let mapped_file = MappedFile::new(f).expect("Something went wrong");
-        self.pointer = Some(mapped_file);
+        // TODO: Init Object Storage
+        self.objectStorage
+            .startOperationsOnObject(name.clone())
+            .expect("Unable to open object");
+
+        let volume_size = self.objectStorage.get_size(name.clone())
         self.volume_size = volume_size;
     }
 
@@ -70,41 +70,28 @@ impl<'a> StorageBackend for MmapBackend {
     }
 
     fn read(&self, offset: u64, length: usize) -> Vec<u8> {
-        let mut buffer = vec![0_u8; length as usize];
-        buffer.copy_from_slice(&self.pointer.as_ref().unwrap().map(offset, length).unwrap());
-        buffer
+        let buffer = self.objectStorage
+            .readPartial(name.clone(), offset, length)
+            .expect("Unable to read object");
     }
 
     fn write(&mut self, offset: u64, length: usize, data: &[u8]) -> Result<(), Error> {
-        let pointer = self.pointer.take();
-        let mut mut_pointer = pointer
-            .unwrap()
-            .into_mut_mapping(offset, length)
-            .map_err(|(e, _)| e)
-            .unwrap();
-        mut_pointer.copy_from_slice(&data);
-        self.pointer = Some(mut_pointer.unmap());
-        Ok(())
+        let buffer = self.objectStorage
+            .writePartial(name.clone(), offset, length, data)
+            .expect("Unable to write object");
     }
 
     fn flush(&mut self, offset: u64, length: usize) -> Result<(), Error> {
-        let pointer = self.pointer.take();
-        let mut_pointer = pointer
-            .unwrap()
-            .into_mut_mapping(offset, length)
-            .map_err(|(e, _)| e)
-            .unwrap();
-        /*
-        let pointer = BorrowMut::<MappedFile>::borrow_mut(&mut self.pointer);
-        */
-        mut_pointer.flush();
-        self.pointer = Some(mut_pointer.unmap());
-        Ok(())
+        return self.objectStorage
+            .persistObject(name.clone())
+            .expect("Unable to persist object");
     }
 
     fn close(&mut self) {
-        let pointer = self.pointer.as_ref().unwrap();
-        drop(pointer);
+        let objectStorage = self.objectStorage.as_ref().unwrap();
+        objectStorage
+            .endOperationsOnObject(name.clone())
+            .expect("Unable to close object");
     }
 }
 
