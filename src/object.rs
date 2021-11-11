@@ -138,3 +138,53 @@ impl<'a> PartialAccessObjectStorage for FileBackend {
     }
 
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_file_backend_get_file() {
+        let filesystem = FileBackend {
+            folderpath: "test",
+            ..Default::<FileBackend>::default()
+        };
+        let file = filesystem.get_file("test");
+        assert!(file.is_ok());
+        assert!(file.metadata().unwrap().is_file());
+    }
+
+    #[test]
+    fn test_file_backend_mmap() {
+        let filesystem = FileBackend {
+            folderpath: "test",
+            ..Default::<FileBackend>::default()
+        };
+        let mmaped_file = filesystem.mmap_file("test");
+        assert!(mmaped_file.is_ok());
+    }
+
+    #[test]
+    fn test_file_backend_init() {
+        let mut filesystem = Default::<FileBackend>::default();
+        assert!(&filesystem.name == "");
+        filesystem.init(String::from("test"));
+        assert!(&filesystem.name == "");
+    }
+
+    #[test]
+    fn test_file_backend_startOperationsOnObject() {
+        let filesystem = Default::<FileBackend>::default();
+        filesystem.startOperationsOnObject(String::from("test"))
+        assert!(filesystem.open_files.len() == 1);
+    }
+
+    #[test]
+    fn test_file_backend_endOperationsOnObject() {
+        let filesystem = Default::<FileBackend>::default();
+        filesystem.startOperationsOnObject(String::from("test"));
+        assert!(filesystem.open_files.len() == 1);
+        filesystem.endOperationsOnObject(String::from("test"));
+        assert!(filesystem.open_files.len() == 0);
+    }
+}
