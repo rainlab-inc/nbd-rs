@@ -4,6 +4,7 @@ use std::{
     rc::{Rc},
     collections::{HashMap},
     cell::{RefCell},
+    path::{Path},
 };
 
 use mmap_safe::{MappedFile};
@@ -62,6 +63,10 @@ impl FileBackend {
         //let file = self.open_file(objectName, false);
         self.mmap_file(objectName)
     }
+
+    fn obj_path(&self, objectName: String) -> &Path {
+        &Path::new(&self.folder_path).join(objectName.clone())
+    }
 }
 
 impl<'a> SimpleObjectStorage for FileBackend {
@@ -70,8 +75,10 @@ impl<'a> SimpleObjectStorage for FileBackend {
     }
 
     fn exists(&self, objectName: String) -> Result<bool, Error> {
-        Err(Error::new(ErrorKind::Unsupported, "Not yet implemented"))
+        let path = self.obj_path(objectName);
+        return Ok(path.is_file() && path.exists())
     }
+
     fn read(&self, objectName: String) -> Result<Vec<u8>, Error> {
         Err(Error::new(ErrorKind::Unsupported, "Not yet implemented"))
     }
@@ -83,12 +90,13 @@ impl<'a> SimpleObjectStorage for FileBackend {
     }
 
     fn get_size (&self, objectName: String) -> Result<u64, Error> {
-        let length_data = std::fs::metadata(objectName.clone());
-        if length_data.is_ok() {
-            Ok(length_data.unwrap().len())
-        } else {
-            Err(Error::new(ErrorKind::Other, format!("Error on getting size of: <{}>", objectName)))
-        }
+        let path = self.obj_path(objectName);
+
+        let length_data = path
+            .metadata()
+            .expect(&format!("Error on getting size of: <{}>", objectName));
+
+        Ok(length_data.len())
     }
 
     fn startOperationsOnObject (&mut self, objectName: String) -> Result<(), Error> {
