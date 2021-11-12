@@ -39,7 +39,7 @@ impl RawImage {
         let mut selfref = RawImage {
             name: name.clone(),
             volume_size: 0_u64,
-            objectStorage: Box::new(object::storage_with_config(config)),
+            objectStorage: Box::new(storage_with_config(config)),
         };
         selfref.init(name.clone());
         selfref
@@ -68,7 +68,7 @@ impl<'a> StorageBackend for RawImage {
         self.volume_size
     }
 
-    fn read(&self, offset: u64, length: usize) -> Result<&[u8], Error> {
+    fn read(&self, offset: u64, length: usize) -> Result<Vec<u8>, Error> {
         self.objectStorage
             .readPartial(self.name.clone(), offset, length)
     }
@@ -86,6 +86,7 @@ impl<'a> StorageBackend for RawImage {
     fn close(&mut self) {
         self.objectStorage
             .endOperationsOnObject(self.name.clone())
+            .expect("Could not close object properly");
     }
 }
 

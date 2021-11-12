@@ -16,7 +16,6 @@ use crate::storage::StorageBackend;
 
 mod object;
 mod storage;
-mod object;
 mod proto;
 mod util;
 
@@ -117,7 +116,7 @@ impl<'a> NBDSession {
     fn init_storage_driver(image_name: String, driver_name: String) -> Option<Box<dyn StorageBackend>> {
         match driver_name.as_str() {
             "raw" => {
-                Some(Box::new(storage::RawImage::new(image_name.clone())))
+                Some(Box::new(storage::RawImage::new(image_name.clone(), String::from("TODO:CONFIG:HERE"))))
             },
             "sharded" => {
                 Some(Box::new(storage::ShardedFile::new(image_name.to_lowercase().clone(), String::from("test"))))

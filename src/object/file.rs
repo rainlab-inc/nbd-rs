@@ -7,6 +7,14 @@ use std::{
 
 use mmap_safe::{MappedFile};
 
+use crate::object::{
+    ObjectStorage,
+    SimpleObjectStorage,
+    PartialAccessObjectStorage,
+    StreamingObjectStorage,
+    StreamingPartialAccessObjectStorage,
+};
+
 pub struct FileBackend {
     folder_path: String,
     open_files: HashMap<String, Box<MappedFile>>,
@@ -60,6 +68,19 @@ impl<'a> SimpleObjectStorage for FileBackend {
         self.folder_path = connStr.clone()
     }
 
+    fn exists(&self, objectName: String) -> Result<bool, Error> {
+        Err(Error::new(ErrorKind::Unsupported, "Not yet implemented"))
+    }
+    fn read(&self, objectName: String) -> Result<Vec<u8>, Error> {
+        Err(Error::new(ErrorKind::Unsupported, "Not yet implemented"))
+    }
+    fn write(&self, objectName: String, data: &[u8]) -> Result<(), Error> {
+        Err(Error::new(ErrorKind::Unsupported, "Not yet implemented"))
+    }
+    fn delete(&self, objectName: String) -> Result<(), Error> {
+        Err(Error::new(ErrorKind::Unsupported, "Not yet implemented"))
+    }
+
     fn get_size (&self, objectName: String) -> Result<u64, Error> {
         let length_data = std::fs::metadata(objectName.clone());
         if length_data.is_ok() {
@@ -69,7 +90,7 @@ impl<'a> SimpleObjectStorage for FileBackend {
         }
     }
 
-    fn startOperationsOnObject (&mut self, objectName: String) -> Result<(), Error> {
+    fn startOperationsOnObject (&self, objectName: String) -> Result<(), Error> {
         // TODO: Check if self.openFiles already has same file, use Rc.increment_strong_count in that case
 
         let f = OpenOptions::new()
@@ -83,7 +104,7 @@ impl<'a> SimpleObjectStorage for FileBackend {
         Ok(())
     }
 
-    fn endOperationsOnObject(&mut self, objectName: String) -> Result<(), Error> {
+    fn endOperationsOnObject(&self, objectName: String) -> Result<(), Error> {
         // TODO: code below is stupid here. just remove file from this.openFiles
         let file = self.get_file(objectName); // get or open file
         let pointer = file.as_ref().unwrap();
@@ -124,6 +145,9 @@ impl<'a> PartialAccessObjectStorage for FileBackend {
         Ok(length)
     }
 }
+
+impl StreamingObjectStorage for FileBackend {}
+impl StreamingPartialAccessObjectStorage for FileBackend {}
 
 impl ObjectStorage for FileBackend {}
 
