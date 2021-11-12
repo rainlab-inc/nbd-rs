@@ -102,7 +102,7 @@ impl ShardedBlock {
     }
 
     pub fn size_of_volume(&self) -> u64 {
-        let shard_name = format!("{}-size", self.name.clone());
+        let shard_name = format!("{}/size", self.name.clone());
         let filedata = self.object_storage.read(shard_name).unwrap(); // TODO: Errors?
         let mut string = str::from_utf8(&filedata).unwrap().to_string();
         string.retain(|c| !c.is_whitespace());

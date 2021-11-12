@@ -11,7 +11,10 @@ pub fn storage_with_config(config: String) -> Result<Box<dyn ObjectStorage>, Err
     return match issue_list_url.scheme() {
         "file" => {
             // Expecting a folder path
-            Ok(Box::new(FileBackend::new(issue_list_url.path().to_string())))
+            let mut path_from_url = issue_list_url.as_str().splitn(2, "///");
+            path_from_url.next().unwrap(); // 'file:'
+            let path = path_from_url.next().unwrap_or("./");
+            Ok(Box::new(FileBackend::new(String::from(path))))
         },
         _ => {
             // hard fail

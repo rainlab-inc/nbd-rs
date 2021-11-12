@@ -53,29 +53,19 @@ impl FileBackend {
             .open(object_name.clone())
     }
 
-    fn mmap_file(&self, object_name: String) -> Result<Rc<RefCell<MappedFile>>, Error> {
+    fn get_file(&self, object_name: String) -> Result<Rc<RefCell<MappedFile>>, Error> {
+        // TODO: Check if self.openFiles already has the file, return that
+        //let file = self.open_file(object_name, false);
         let mut open_files = self.open_files.borrow_mut();
         let mapped_file = open_files.get_key_value(&object_name);
         if mapped_file.is_some() {
             return Ok(Rc::clone(&mapped_file.unwrap().1));
         }
 
-        let f = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(object_name.clone())
-            .expect("Unable to open file");
-
-        let mapped_refcell = Rc::new(RefCell::new(MappedFile::new(f).unwrap()));
+        let mapped_refcell = Rc::new(RefCell::new(MappedFile::open(object_name.clone()).unwrap()));
         let mapped = mapped_refcell.clone();
         open_files.insert(object_name.clone(), mapped_refcell);
         Ok(mapped)
-    }
-
-    fn get_file(&self, object_name: String) -> Result<Rc<RefCell<MappedFile>>, Error> {
-        // TODO: Check if self.openFiles already has the file, return that
-        //let file = self.open_file(object_name, false);
-        self.mmap_file(object_name)
     }
 
     fn obj_path(&self, object_name: String) -> PathBuf {
@@ -141,24 +131,28 @@ impl<'a> SimpleObjectStorage for FileBackend {
     }
 
     fn start_operations_on_object(&self, object_name: String) -> Result<(), Error> {
-        let mut open_files = self.open_files.borrow_mut();
+        self.get_file(object_name);
+        //let mut open_files = self.open_files.borrow_mut();
         // TODO: Check if self.openFiles already has same file, use Rc.increment_strong_count in that case
-
-        let f = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(object_name.clone())
-            .expect("Unable to open file");
-
         // TODO: Mmap? MappedFile::new(f).expect("Something went wrong");
-        open_files.insert(object_name.clone(), Rc::new(RefCell::new(MappedFile::new(f).unwrap())));
+        // TODO: Exact same behavior with `get_file`?
+        /*open_files.insert(
+            object_name.clone(),
+            Rc::new(RefCell::new(MappedFile::open(object_name.clone()).unwrap()))
+        );*/
         Ok(())
     }
 
     fn end_operations_on_object(&self, object_name: String) -> Result<(), Error> {
         // TODO: code below is stupid here. just remove file from this.openFiles
-        let file = self.get_file(object_name.clone()); // get or open file
-        Ok(drop(file)) // !?
+        let file = self.get_file(object_name.clone()).unwrap(); // get or open file
+        if !(Rc::strong_count(&file) >= 1) {
+            // https://doc.rust-lang.org/std/rc/struct.Rc.html#safety-3
+            return Err(Error::new(ErrorKind::Other, "Unsafe ending operations on object. There is no operations."))
+        }
+        unsafe{ Rc::decrement_strong_count(Rc::into_raw(file)); }
+        Ok(())
+        //Ok(drop(file)) // !?
     }
 
     fn persist_object(&self, object_name: String) -> Result<(), Error> {
@@ -180,28 +174,33 @@ impl<'a> PartialAccessObjectStorage for FileBackend {
 
     fn partial_read(&self, object_name: String, offset: u64, length: usize) -> Result<Vec<u8>, Error> {
         // TODO: Use MMAP if file is already open and mmap'ed.
-        // let mut buffer = vec![0_u8; length as usize];
-        // let file = self.get_file(object_name).unwrap(); // get or open file
-        // let map = file.map(offset, length).unwrap();
-        // buffer.copy_from_slice(map.as_ref());
-        // Ok(buffer)
-        let path = self.obj_path(object_name.clone());
-        let mut buffer = vec![0_u8; length];
-        if !self.exists(object_name.clone())? {
-            return Err(Error::new(ErrorKind::NotFound, "Object Not Found"))
+        let open_files = self.open_files.borrow();
+        match open_files.get_key_value(&object_name) {
+            Some(mapped_file) => {
+                let mut buffer = vec![0_u8; length as usize];
+                let map = mapped_file.1.borrow();
+                let sub = map.map(offset, length).unwrap();
+                buffer.copy_from_slice(sub.as_ref());
+                return Ok(buffer)
+            },
+            None => {
+                let path = self.obj_path(object_name.clone());
+                let mut buffer = vec![0_u8; length];
+                if !self.exists(object_name.clone())? {
+                    return Err(Error::new(ErrorKind::NotFound, "Object Not Found"))
+                }
+
+                let mut file = OpenOptions::new()
+                    .read(true)
+                    .open(path)
+                    .unwrap();
+
+                file.seek(SeekFrom::Start(offset))?;
+                file.read_exact(&mut buffer)
+                    .expect(&format!("couldn't read object: {:?}", object_name.clone()));
+                return Ok(buffer)
+            }
         }
-
-        let mut file = OpenOptions::new()
-            .read(true)
-            .open(path)
-            .unwrap();
-
-        file.seek(SeekFrom::Start(offset))?;
-        file
-            .read_exact(&mut buffer)
-            .expect(&format!("couldn't read object: {:?}", object_name.clone()));
-
-        Ok(buffer)
     }
 
     fn partial_write(&self, object_name: String, offset: u64, length: usize, data: &[u8]) -> Result<usize, Error> {
@@ -244,19 +243,10 @@ mod tests {
             folder_path: String::from("alpine"),
             ..FileBackend::default()
         };
-        let file = filesystem.get_file(String::from("alpine"));
-        assert!(file.is_ok());
-        drop(file);
-    }
-
-    #[test]
-    fn test_file_backend_mmap() {
-        let filesystem = FileBackend {
-            folder_path: String::from("alpine"),
-            ..FileBackend::default()
-        };
-        let mmapped_file = filesystem.mmap_file(String::from("alpine"));
-        assert!(mmapped_file.is_ok());
+        let mapped_file = filesystem.get_file(String::from("alpine"));
+        assert!(mapped_file.is_ok());
+        let mapped_file_2 = filesystem.get_file(String::from("alpine"));
+        assert!(mapped_file_2.is_ok());
     }
 
     #[test]
@@ -271,15 +261,12 @@ mod tests {
     fn test_file_backend_start_operations_on_object() {
         let mut filesystem = FileBackend::default();
         filesystem.start_operations_on_object(String::from("alpine"));
-        //assert!(filesystem.open_files.len() == 1);
     }
 
     #[test]
     fn test_file_backend_end_operations_on_object() {
         let mut filesystem = FileBackend::default();
         filesystem.start_operations_on_object(String::from("alpine"));
-        //assert!(filesystem.open_files.len() == 1);
         filesystem.end_operations_on_object(String::from("alpine"));
-        //assert!(filesystem.open_files.len() == 0);
     }
 }

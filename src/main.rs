@@ -510,7 +510,7 @@ impl<'a> NBDServer {
             proto::NBD_REP_INFO,
             12
         );
-        let selected_export = self.exports.get_key_value(&name).unwrap();
+        let selected_export = self.exports.get_key_value(&name.to_lowercase()).unwrap();
         let session = self.session.as_ref().unwrap();
         let mut volume_size: u64 = 256 * 1024 * 1024;
         if session.driver.is_none() {
@@ -662,7 +662,7 @@ impl<'a> NBDServer {
             0
         );
         if (opt == proto::NBD_OPT_GO) & (self.session.as_ref().unwrap().driver.is_none()) {
-            let selected_export = self.exports.get_key_value(&name).unwrap();
+            let selected_export = self.exports.get_key_value(&name.to_lowercase()).unwrap();
             let session = self.session.take().unwrap();
             self.session = Some(NBDSession::new(
                 clone_stream!(socket),
@@ -746,7 +746,7 @@ fn main() {
                 .number_of_values(3)
                 .long_help(
 "USAGE:
-[-e | --export EXPORT_NAME; DRIVER (mmap, sharded); CONN_STR]...
+[-e | --export EXPORT_NAME; DRIVER (raw, sharded); CONN_STR]...
 Sets the export(s) via `export` argument. Must be used at least once."),
         )
         .get_matches();
