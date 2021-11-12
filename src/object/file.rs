@@ -3,7 +3,7 @@ use std::{
     io::{Read, Write, Seek, SeekFrom, Error, ErrorKind},
     collections::{HashMap},
     cell::{RefCell, RefMut},
-    path::{Path},
+    path::{Path,PathBuf},
 };
 
 use mmap_safe::{MappedFile};
@@ -23,12 +23,7 @@ pub struct FileBackend {
 
 impl Default for FileBackend {
     fn default() -> FileBackend {
-        FileBackend {
-            folder_path: String::from(""),
-            open_files: RefCell::<HashMap<String, RefCell<MappedFile>>>::new(
-                HashMap::<String, RefCell<MappedFile>>::new()
-            )
-        }
+        FileBackend::new(String::from(""))
     }
 }
 
@@ -36,6 +31,15 @@ impl FileBackend {
     fn print(&self) {
         let open_files = self.open_files.borrow();
         println!("{}", format!("Folder Path: '{path}', Keys: {files:?}", path=self.folder_path, files=open_files.keys()));
+    }
+
+    pub fn new(config: String) -> FileBackend {
+        FileBackend {
+            folder_path: config.clone(),
+            open_files: RefCell::<HashMap<String, RefCell<MappedFile>>>::new(
+                HashMap::<String, RefCell<MappedFile>>::new()
+            )
+        }
     }
 
     fn open_file(&self, objectName: String, create: bool) -> Result<File, Error> {
@@ -71,8 +75,8 @@ impl FileBackend {
         self.mmap_file(objectName)
     }
 
-    fn obj_path(&self, objectName: String) -> &Path {
-        &Path::new(&self.folder_path).join(objectName.clone())
+    fn obj_path(&self, objectName: String) -> PathBuf {
+        Path::new(&self.folder_path).join(objectName.clone())
     }
 }
 
@@ -82,14 +86,14 @@ impl<'a> SimpleObjectStorage for FileBackend {
     }
 
     fn exists(&self, objectName: String) -> Result<bool, Error> {
-        let path = self.obj_path(objectName);
+        let path = self.obj_path(objectName.clone());
         return Ok(path.is_file() && path.exists())
     }
 
     fn read(&self, objectName: String) -> Result<Vec<u8>, Error> {
-        let path = self.obj_path(objectName);
+        let path = self.obj_path(objectName.clone());
         let mut buffer: Vec<u8> = Vec::new();
-        if !self.exists(objectName)? {
+        if !self.exists(objectName.clone())? {
             return Err(Error::new(ErrorKind::NotFound, "Object Not Found"))
         }
 
@@ -100,13 +104,13 @@ impl<'a> SimpleObjectStorage for FileBackend {
 
         file
             .read_to_end(&mut buffer)
-            .expect(&format!("couldn't read object: {:?}", objectName));
+            .expect(&format!("couldn't read object: {:?}", objectName.clone()));
 
         Ok(buffer)
     }
 
     fn write(&self, objectName: String, data: &[u8]) -> Result<(), Error> {
-        let path = self.obj_path(objectName);
+        let path = self.obj_path(objectName.clone());
         let mut file = OpenOptions::new()
             .write(true)
             .create(true)
@@ -123,17 +127,17 @@ impl<'a> SimpleObjectStorage for FileBackend {
         Err(Error::new(ErrorKind::Unsupported, "Not yet implemented"))
     }
 
-    fn get_size (&self, objectName: String) -> Result<u64, Error> {
-        let path = self.obj_path(objectName);
+    fn get_size(&self, objectName: String) -> Result<u64, Error> {
+        let path = self.obj_path(objectName.clone());
 
         let length_data = path
             .metadata()
-            .expect(&format!("Error on getting size of: <{}>", objectName));
+            .expect(&format!("Error on getting size of: <{}>", objectName.clone()));
 
         Ok(length_data.len())
     }
 
-    fn startOperationsOnObject (&self, objectName: String) -> Result<(), Error> {
+    fn startOperationsOnObject(&self, objectName: String) -> Result<(), Error> {
         let mut open_files = self.open_files.borrow_mut();
         // TODO: Check if self.openFiles already has same file, use Rc.increment_strong_count in that case
 
@@ -150,16 +154,16 @@ impl<'a> SimpleObjectStorage for FileBackend {
 
     fn endOperationsOnObject(&self, objectName: String) -> Result<(), Error> {
         // TODO: code below is stupid here. just remove file from this.openFiles
-        let file = self.get_file(objectName).unwrap(); // get or open file
-        let pointer = file;
-        Ok(drop(pointer))
+        let file = self.get_file(objectName.clone()); // get or open file
+        Ok(drop(file)) // !?
     }
 
     fn persistObject(&self, objectName: String) -> Result<(), Error> {
-        // let file = self.get_file(objectName.clone()).unwrap(); // get or open file
+        // This is only relevant for already open files.
+
         let file = self.get_file(objectName.clone()).unwrap(); // get or open file
         let mut_pointer = file
-            .into_mut_mapping(0, self.get_size(objectName).unwrap() as usize)
+            .into_mut_mapping(0, self.get_size(objectName.clone()).unwrap() as usize)
             .map_err(|(e, _)| e)
             .unwrap();
         mut_pointer.flush();

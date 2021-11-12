@@ -39,7 +39,7 @@ impl RawImage {
         let mut selfref = RawImage {
             name: name.clone(),
             volume_size: 0_u64,
-            objectStorage: storage_with_config(config),
+            objectStorage: storage_with_config(config).unwrap(),
         };
         selfref.init(name.clone());
         selfref

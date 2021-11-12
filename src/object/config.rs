@@ -1,5 +1,5 @@
 use std::io::{Error,ErrorKind};
-use url::{Url, ParseError};
+use url::{Url};
 
 use crate::object::ObjectStorage;
 use crate::object::FileBackend;
@@ -11,7 +11,7 @@ pub fn storage_with_config(config: String) -> Result<Box<dyn ObjectStorage>, Err
     return match issue_list_url.scheme() {
         "file" => {
             // Expecting a folder path
-            Ok(Box::new(FileBackend::new(issue_list_url.path())))
+            Ok(Box::new(FileBackend::new(issue_list_url.path().to_string())))
         },
         _ => {
             // hard fail

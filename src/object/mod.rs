@@ -2,10 +2,8 @@ use std::{
     io::{Read, Write, Error, ErrorKind},
 };
 
-use url::{Url, ParseError};
-
-//mod config;
-//pub use self::config::storage_with_config;
+mod config;
+pub use self::config::storage_with_config;
 
 mod file;
 pub use self::file::FileBackend;
@@ -57,20 +55,3 @@ pub trait StreamingPartialAccessObjectStorage {
 }
 
 pub trait ObjectStorage: SimpleObjectStorage + PartialAccessObjectStorage + StreamingObjectStorage + StreamingPartialAccessObjectStorage {}
-
-
-pub fn storage_with_config(config: String) -> Box<dyn ObjectStorage> {
-    let issue_list_url = Url::parse(&config).expect("Could not parse config url.");
-    match issue_list_url.scheme() {
-        "file" => {
-            let object_storage: Box<dyn ObjectStorage> = Box::new(FileBackend {
-                folder_path: String::from(issue_list_url.path()),
-                ..FileBackend::default()
-            });
-            return object_storage
-        },
-        e => {
-            panic!("Invalid url scheme: <{}>", e);
-        }
-    };
-}
