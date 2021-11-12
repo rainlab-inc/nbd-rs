@@ -1,28 +1,19 @@
 use std::{
-    fs::{OpenOptions},
-    path::{Path},
-    io::{Read, Write, Seek, SeekFrom, Error, ErrorKind},
+    str,
+    io::{Error},
 };
-
-extern crate libc;
 
 use crate::{
     object::{ObjectStorage, storage_with_config},
 };
 
 pub trait StorageBackend {
-    fn init(&mut self, name: String);
-
+    fn init(&mut self);
     fn get_name(&self) -> String;
-
     fn get_volume_size(&self) -> u64;
-
     fn read(&self, offset: u64, length: usize) -> Result<Vec<u8>, Error>;
-
     fn write(&mut self, offset: u64, length: usize, data: &[u8]) -> Result<usize, Error>;
-
     fn flush(&mut self, offset: u64, length: usize) -> Result<(), Error>;
-
     fn close(&mut self);
 }
 
@@ -41,24 +32,18 @@ impl RawImage {
             volume_size: 0_u64,
             objectStorage: storage_with_config(config).unwrap(),
         };
-        selfref.init(name.clone());
+        selfref.init();
         selfref
     }
 }
 
 impl<'a> StorageBackend for RawImage {
-    fn init(&mut self, name: String) {
-        /*
-        if self.pointer.is_some() {
-            return ()
-        }*/
-        // TODO: Init Object Storage
+    fn init(&mut self) {
         self.objectStorage
-            .startOperationsOnObject(name.clone());
+            .startOperationsOnObject(self.name.clone()).unwrap();
             // .expect("Unable to open object");
 
-        self.volume_size = self.objectStorage.get_size(name.clone()).unwrap_or(0);
-        self.name = name.clone();
+        self.volume_size = self.objectStorage.get_size(self.name.clone()).unwrap_or(0);
     }
 
     fn get_name(&self) -> String {
@@ -97,19 +82,19 @@ pub struct ShardedFile {
     name: String,
     volume_size: u64,
     shard_size: u64,
-    storage_path: String
+    objectStorage: Box<dyn ObjectStorage>,
 }
 
 impl ShardedFile {
-    pub fn new(name: String, path: String) -> ShardedFile {
+    pub fn new(name: String, config: String) -> ShardedFile {
         let default_shard_size: u64 = 4 * 1024 * 1024;
         let mut sharded_file = ShardedFile {
             name: name.clone(),
             volume_size: 0_u64,
             shard_size: default_shard_size,
-            storage_path: path
+            objectStorage: storage_with_config(config).unwrap(),
         };
-        sharded_file.init(name);
+        sharded_file.init();
         sharded_file
     }
 
@@ -117,12 +102,10 @@ impl ShardedFile {
         (offset / &self.shard_size) as usize
     }
 
-    pub fn size_of_volume(&self, dir: &Path) -> u64 {
-        let path = dir.join("size");
-        if !path.is_file() | !path.exists() {
-            eprintln!("No metadata file found: '{}'", path.display());
-        }
-        let mut string = std::fs::read_to_string(path).unwrap();
+    pub fn size_of_volume(&self) -> u64 {
+        let shard_name = format!("{}-size", self.name.clone());
+        let filedata = self.objectStorage.read(shard_name).unwrap(); // TODO: Errors?
+        let mut string = str::from_utf8(&filedata).unwrap().to_string();
         string.retain(|c| !c.is_whitespace());
         let volume_size: u64 = string.parse().unwrap();
         volume_size
@@ -130,12 +113,8 @@ impl ShardedFile {
 }
 
 impl StorageBackend for ShardedFile {
-    fn init(&mut self, name: String) {
-        let path = Path::new(&self.storage_path).join(self.name.clone());
-        if !path.is_dir() | !path.exists() {
-            eprintln!("No directory found: '{}'", path.display());
-        }
-        self.volume_size = self.size_of_volume(&path);
+    fn init(&mut self) {
+        self.volume_size = self.size_of_volume();
     }
 
     fn get_name(&self) -> String {
@@ -154,33 +133,30 @@ impl StorageBackend for ShardedFile {
         } else {
             self.shard_index(offset + length as u64)
         };
-        println!("Start: {}, End: {}", start, end);
+
+        println!("(Read) Start: {}, End: {}", start, end);
         for i in start..=end {
-            println!("Iteration: {}", i);
-            let path = Path::new(&self.storage_path)
-                .join(self.name.clone())
-                .join(format!("{}-{}", self.name.clone(), i.to_string()));
-            if path.is_file() {
-                let mut file = OpenOptions::new()
-                    .read(true)
-                    .open(path)
-                    .unwrap();
+            println!("(Read) Iteration: {}", i);
+            let shard_name = format!("{}-{}", self.name.clone(), i.to_string());
+
+            if self.objectStorage.exists(shard_name.clone())? {
                 if i == start {
                     let read_size = std::cmp::min((self.shard_size - offset % self.shard_size) as usize, length);
-                    file.seek(SeekFrom::Start(offset % self.shard_size));
-                    let mut buf = vec![0_u8; read_size];
-                    file.read_exact(&mut buf).expect("read failed");
+                    let buf = self.objectStorage
+                        .readPartial(shard_name.clone(), offset % self.shard_size, read_size)?;
                     buffer.extend_from_slice(&buf);
                     continue;
                 }
                 if i == end {
                     let read_size = ((length as u64 + offset % self.shard_size) % self.shard_size) as usize;
-                    let mut buf = vec![0_u8; read_size];
-                    file.read_exact(&mut buf).expect("read failed");
+                    let buf = self.objectStorage
+                        .readPartial(shard_name.clone(), 0, read_size)?;
                     buffer.extend_from_slice(&buf);
                     break;
                 }
-                file.read_to_end(&mut buffer).expect(&format!("couldn't read from file: {:?}-{}", self.name.clone(), i.to_string()));
+                let buf = self.objectStorage
+                    .read(shard_name.clone())?;
+                buffer.extend_from_slice(&buf);
             } else {
                 if i == start {
                     let read_size = std::cmp::min((self.shard_size - offset % self.shard_size) as usize, length);
@@ -205,97 +181,62 @@ impl StorageBackend for ShardedFile {
         } else {
             self.shard_index(offset + length as u64)
         };
-        println!("Start: {}, End: {}", start, end);
+        println!("(Write) Start: {}, End: {}", start, end);
         for i in start..=end {
-            println!("Iteration: {}", i);
-            let path = Path::new(&self.storage_path)
-                .join(self.name.clone())
-                .join(format!("{}-{}", self.name.clone(), i.to_string()));
-            let file_not_exists = !&path.is_file();
-            let mut file = OpenOptions::new()
-                .write(true)
-                .create(true)
-                .open(path)
-                .unwrap();
+            println!("(Write) Iteration: {}", i);
+            let shard_name = format!("{}-{}", self.name.clone(), i.to_string());
+
             let range_start = (offset % self.shard_size + (i as u64) * self.shard_size) as usize;
             let range_end = (offset % self.shard_size + (i as u64 + 1) * self.shard_size) as usize;
 
             if i == start {
-                let read_size = std::cmp::min((self.shard_size - offset % self.shard_size) as usize, length);
-                if file_not_exists {
-                    let zeroes: Vec<u8> = vec![0_u8; self.shard_size as usize - read_size];
+                let write_len = std::cmp::min((self.shard_size - offset % self.shard_size) as usize, length);
+                if !self.objectStorage.exists(shard_name.clone())? {
+                    let zeroes: Vec<u8> = vec![0_u8; self.shard_size as usize - write_len];
                     let mut buffer: Vec<u8> = Vec::new();
                     buffer.extend_from_slice(&zeroes);
-                    buffer.extend_from_slice(&data[0..read_size]);
-                    file.write_all(&buffer)?;
-                    //file.sync_all()?
+                    buffer.extend_from_slice(&data[0..write_len]);
+
+                    self.objectStorage.write(shard_name.clone(), &buffer)?;
                     continue;
                 } else {
-                    file.seek(SeekFrom::Start(offset % self.shard_size));
-                    file.write_all(&data[0..read_size])?;
-                    //file.sync_all()?;
+                    self.objectStorage.writePartial(shard_name.clone(), offset % self.shard_size, write_len, &data[0..write_len])?;
                     continue;
                 }
             } else if i == end {
-                let read_size = ((length as u64 + offset % self.shard_size) % self.shard_size) as usize;
-                if file_not_exists {
-                    let zeroes: Vec<u8> = vec![0_u8; self.shard_size as usize - read_size];
+                let write_len = ((length as u64 + offset % self.shard_size) % self.shard_size) as usize;
+                if !self.objectStorage.exists(shard_name.clone())? {
+                    let zeroes: Vec<u8> = vec![0_u8; self.shard_size as usize - write_len];
                     let mut buffer: Vec<u8> = Vec::new();
-                    buffer.extend_from_slice(&data[range_start..(range_start + read_size)]);
+                    buffer.extend_from_slice(&data[range_start..(range_start + write_len)]);
                     buffer.extend_from_slice(&zeroes);
-                    file.write_all(&buffer)?;
-                    //file.sync_all()?
+                    self.objectStorage.write(shard_name.clone(), &buffer)?;
                     break;
                 } else {
-                    file.write_all(&data[range_start..(range_start + read_size)])?;
-                    //file.sync_all()?
+                    self.objectStorage.writePartial(shard_name.clone(), 0, write_len, &data[range_start..(range_start + write_len)])?;
                     break;
                 }
             }
-            let err = file.write(&data[range_start..range_end]);
-            if err.is_err() {
-                return Err(Error::new(ErrorKind::Other, format!("Error at file: '{:?}'. {:?}", self.name.clone(), err)))
-            }
-            /*
-            err = file.sync_all();
-            if err.is_err() {
-                return Err(Error::new(ErrorKind::Other, format!("Error at file: '{:?}'. {:?}", self.name.clone(), err)))
-            }
-            */
+
+            self.objectStorage.write(shard_name.clone(), &data[range_start..range_end])?;
         }
         Ok(length)
     }
 
     fn flush(&mut self, offset: u64, length: usize) -> Result<(), Error> {
-        unsafe{ libc::sync(); }
-        /*
         let start = self.shard_index(offset);
         let end = if 0 == (offset + length as u64) % self.shard_size {
             self.shard_index(offset + length as u64) - 1
         } else {
             self.shard_index(offset + length as u64)
         };
-        let mut result = Ok(());
+        println!("(Flush) Start: {}, End: {}", start, end);
         for i in start..=end {
-            let path = Path::new(&self.storage_path)
-                .join(self.name.clone())
-                .join(format!("{}-{}", self.name.clone(), i.to_string()));
-            let file_not_exists = !&path.is_file();
-            if file_not_exists {
-                println!("File does not exist: '{:?}'", path.display());
-                continue;
-            }
-            let file = OpenOptions::new()
-                .write(true)
-                .open(path)
-                .unwrap();
-            result = file.sync_all();
-            if result.is_err() {
-                break;
-            }
+            println!("(Flush) Iteration: {}", i);
+            let shard_name = format!("{}-{}", self.name.clone(), i.to_string());
+            self.objectStorage.persistObject(shard_name.clone())?;
         }
-        result
-        */
+
         Ok(())
     }
 

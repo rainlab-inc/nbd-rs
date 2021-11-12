@@ -272,7 +272,7 @@ impl<'a> NBDServer {
             proto::NBD_CMD_READ => { // 0
                 println!("NBD_CMD_READ");
                 println!("\t-->flags:{}, handle: {}, offset: {}, datalen: {}", flags, handle, offset, datalen);
-                let mut session = self.session.as_ref().unwrap();
+                let session = self.session.as_ref().unwrap();
                 println!("STRUCTURED REPLY: {}", structured_reply);
                 let driver = session.driver.as_ref().unwrap();
                 let buffer = driver.read(offset, datalen as usize);
@@ -299,7 +299,10 @@ impl<'a> NBDServer {
                         let mut session = self.session.take().unwrap();
                         let mut driver = session.driver.take().unwrap();
                         let driver_name = driver.get_name();
+
+                        // TODO: Handle errors
                         driver.write(offset, datalen as usize, &data);
+
                         if structured_reply == true {
                             NBDServer::structured_reply(
                                 clone_stream!(socket),
@@ -352,7 +355,7 @@ impl<'a> NBDServer {
                 // Terminate TLS
                 println!("NBD_CMD_DISC");
                 let mut session = self.session.take().unwrap();
-                let mut driver = session.driver.take();
+                let driver = session.driver.take();
                 if driver.is_some() {
                     driver.unwrap().close();
                 }
@@ -660,7 +663,7 @@ impl<'a> NBDServer {
         );
         if (opt == proto::NBD_OPT_GO) & (self.session.as_ref().unwrap().driver.is_none()) {
             let selected_export = self.exports.get_key_value(&name).unwrap();
-            let mut session = self.session.take().unwrap();
+            let session = self.session.take().unwrap();
             self.session = Some(NBDSession::new(
                 clone_stream!(socket),
                 session.flags,
