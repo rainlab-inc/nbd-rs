@@ -17,17 +17,17 @@ pub trait StorageBackend {
     fn close(&mut self);
 }
 
-// Driver: RawImage
+// Driver: RawBlock
 
-pub struct RawImage {
+pub struct RawBlock {
     name: String,
     volume_size: u64,
     object_storage: Box<dyn ObjectStorage>,
 }
 
-impl RawImage {
-    pub fn new(name: String, config: String) -> RawImage {
-        let mut selfref = RawImage {
+impl RawBlock {
+    pub fn new(name: String, config: String) -> RawBlock {
+        let mut selfref = RawBlock {
             name: name.clone(),
             volume_size: 0_u64,
             object_storage: storage_with_config(config).unwrap(),
@@ -37,7 +37,7 @@ impl RawImage {
     }
 }
 
-impl<'a> StorageBackend for RawImage {
+impl<'a> StorageBackend for RawBlock {
     fn init(&mut self) {
         self.object_storage
             .start_operations_on_object(self.name.clone()).unwrap();
@@ -75,19 +75,19 @@ impl<'a> StorageBackend for RawImage {
     }
 }
 
-// Driver: ShardedFile
+// Driver: ShardedBlock
 
-pub struct ShardedFile {
+pub struct ShardedBlock {
     name: String,
     volume_size: u64,
     shard_size: u64,
     object_storage: Box<dyn ObjectStorage>,
 }
 
-impl ShardedFile {
-    pub fn new(name: String, config: String) -> ShardedFile {
+impl ShardedBlock {
+    pub fn new(name: String, config: String) -> ShardedBlock {
         let default_shard_size: u64 = 4 * 1024 * 1024;
-        let mut sharded_file = ShardedFile {
+        let mut sharded_file = ShardedBlock {
             name: name.clone(),
             volume_size: 0_u64,
             shard_size: default_shard_size,
@@ -111,7 +111,7 @@ impl ShardedFile {
     }
 }
 
-impl StorageBackend for ShardedFile {
+impl StorageBackend for ShardedBlock {
     fn init(&mut self) {
         self.volume_size = self.size_of_volume();
     }

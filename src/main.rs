@@ -116,10 +116,10 @@ impl<'a> NBDSession {
     fn init_storage_driver(image_name: String, driver_name: String, storage_config: String) -> Option<Box<dyn StorageBackend>> {
         match driver_name.as_str() {
             "raw" => {
-                Some(Box::new(storage::RawImage::new(image_name.clone(), storage_config)))
+                Some(Box::new(storage::RawBlock::new(image_name.clone(), storage_config)))
             },
             "sharded" => {
-                Some(Box::new(storage::ShardedFile::new(image_name.to_lowercase().clone(), storage_config)))
+                Some(Box::new(storage::ShardedBlock::new(image_name.to_lowercase().clone(), storage_config)))
             },
             _ => {
                 println!("Couldn't find storage driver: <{}>", driver_name);
