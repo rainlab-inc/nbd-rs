@@ -1,6 +1,6 @@
 [package]
-name = "nbd-proxy-rs"
-version = "0.1.0"
+name = "nbd-rs"
+version = "0.0.3"
 authors = ["Furkan Mustafa <furkan@rainlab.co.jp>", "Bilal Ozdemir <bilal@rlab.io>"]
 edition = "2018"
 
