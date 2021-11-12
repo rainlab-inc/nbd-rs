@@ -140,7 +140,7 @@ impl<'a> SimpleObjectStorage for FileBackend {
         Ok(length_data.len())
     }
 
-    fn startOperationsOnObject(&self, object_name: String) -> Result<(), Error> {
+    fn start_operations_on_object(&self, object_name: String) -> Result<(), Error> {
         let mut open_files = self.open_files.borrow_mut();
         // TODO: Check if self.openFiles already has same file, use Rc.increment_strong_count in that case
 
@@ -155,13 +155,13 @@ impl<'a> SimpleObjectStorage for FileBackend {
         Ok(())
     }
 
-    fn endOperationsOnObject(&self, object_name: String) -> Result<(), Error> {
+    fn end_operations_on_object(&self, object_name: String) -> Result<(), Error> {
         // TODO: code below is stupid here. just remove file from this.openFiles
         let file = self.get_file(object_name.clone()); // get or open file
         Ok(drop(file)) // !?
     }
 
-    fn persistObject(&self, object_name: String) -> Result<(), Error> {
+    fn persist_object(&self, object_name: String) -> Result<(), Error> {
         unsafe{ libc::sync(); }
         // This is only relevant for already open files.
 
@@ -178,7 +178,7 @@ impl<'a> SimpleObjectStorage for FileBackend {
 
 impl<'a> PartialAccessObjectStorage for FileBackend {
 
-    fn readPartial(&self, object_name: String, offset: u64, length: usize) -> Result<Vec<u8>, Error> {
+    fn partial_read(&self, object_name: String, offset: u64, length: usize) -> Result<Vec<u8>, Error> {
         // TODO: Use MMAP if file is already open and mmap'ed.
         // let mut buffer = vec![0_u8; length as usize];
         // let file = self.get_file(object_name).unwrap(); // get or open file
@@ -204,7 +204,7 @@ impl<'a> PartialAccessObjectStorage for FileBackend {
         Ok(buffer)
     }
 
-    fn writePartial(&self, object_name: String, offset: u64, length: usize, data: &[u8]) -> Result<usize, Error> {
+    fn partial_write(&self, object_name: String, offset: u64, length: usize, data: &[u8]) -> Result<usize, Error> {
         // TODO: Use MMAP if file is already open and mmap'ed.
         // self.print();
         // let file = self.get_file(object_name.clone()).unwrap(); // get or open file
@@ -268,18 +268,18 @@ mod tests {
     }
 
     #[test]
-    fn test_file_backend_startOperationsOnObject() {
+    fn test_file_backend_start_operations_on_object() {
         let mut filesystem = FileBackend::default();
-        filesystem.startOperationsOnObject(String::from("alpine"));
+        filesystem.start_operations_on_object(String::from("alpine"));
         //assert!(filesystem.open_files.len() == 1);
     }
 
     #[test]
-    fn test_file_backend_endOperationsOnObject() {
+    fn test_file_backend_end_operations_on_object() {
         let mut filesystem = FileBackend::default();
-        filesystem.startOperationsOnObject(String::from("alpine"));
+        filesystem.start_operations_on_object(String::from("alpine"));
         //assert!(filesystem.open_files.len() == 1);
-        filesystem.endOperationsOnObject(String::from("alpine"));
+        filesystem.end_operations_on_object(String::from("alpine"));
         //assert!(filesystem.open_files.len() == 0);
     }
 }

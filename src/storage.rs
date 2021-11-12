@@ -22,7 +22,7 @@ pub trait StorageBackend {
 pub struct RawImage {
     name: String,
     volume_size: u64,
-    objectStorage: Box<dyn ObjectStorage>,
+    object_storage: Box<dyn ObjectStorage>,
 }
 
 impl RawImage {
@@ -30,7 +30,7 @@ impl RawImage {
         let mut selfref = RawImage {
             name: name.clone(),
             volume_size: 0_u64,
-            objectStorage: storage_with_config(config).unwrap(),
+            object_storage: storage_with_config(config).unwrap(),
         };
         selfref.init();
         selfref
@@ -39,11 +39,10 @@ impl RawImage {
 
 impl<'a> StorageBackend for RawImage {
     fn init(&mut self) {
-        self.objectStorage
-            .startOperationsOnObject(self.name.clone()).unwrap();
-            // .expect("Unable to open object");
+        self.object_storage
+            .start_operations_on_object(self.name.clone()).unwrap();
 
-        self.volume_size = self.objectStorage.get_size(self.name.clone()).unwrap_or(0);
+        self.volume_size = self.object_storage.get_size(self.name.clone()).unwrap_or(0);
     }
 
     fn get_name(&self) -> String {
@@ -55,23 +54,23 @@ impl<'a> StorageBackend for RawImage {
     }
 
     fn read(&self, offset: u64, length: usize) -> Result<Vec<u8>, Error> {
-        self.objectStorage
-            .readPartial(self.name.clone(), offset, length)
+        self.object_storage
+            .partial_read(self.name.clone(), offset, length)
     }
 
     fn write(&mut self, offset: u64, length: usize, data: &[u8]) -> Result<usize, Error> {
-        self.objectStorage
-            .writePartial(self.name.clone(), offset, length, data)
+        self.object_storage
+            .partial_write(self.name.clone(), offset, length, data)
     }
 
     fn flush(&mut self, offset: u64, length: usize) -> Result<(), Error> {
-        self.objectStorage
-            .persistObject(self.name.clone())
+        self.object_storage
+            .persist_object(self.name.clone())
     }
 
     fn close(&mut self) {
-        self.objectStorage
-            .endOperationsOnObject(self.name.clone())
+        self.object_storage
+            .end_operations_on_object(self.name.clone())
             .expect("Could not close object properly");
     }
 }
@@ -82,7 +81,7 @@ pub struct ShardedFile {
     name: String,
     volume_size: u64,
     shard_size: u64,
-    objectStorage: Box<dyn ObjectStorage>,
+    object_storage: Box<dyn ObjectStorage>,
 }
 
 impl ShardedFile {
@@ -92,7 +91,7 @@ impl ShardedFile {
             name: name.clone(),
             volume_size: 0_u64,
             shard_size: default_shard_size,
-            objectStorage: storage_with_config(config).unwrap(),
+            object_storage: storage_with_config(config).unwrap(),
         };
         sharded_file.init();
         sharded_file
@@ -104,7 +103,7 @@ impl ShardedFile {
 
     pub fn size_of_volume(&self) -> u64 {
         let shard_name = format!("{}-size", self.name.clone());
-        let filedata = self.objectStorage.read(shard_name).unwrap(); // TODO: Errors?
+        let filedata = self.object_storage.read(shard_name).unwrap(); // TODO: Errors?
         let mut string = str::from_utf8(&filedata).unwrap().to_string();
         string.retain(|c| !c.is_whitespace());
         let volume_size: u64 = string.parse().unwrap();
@@ -139,22 +138,22 @@ impl StorageBackend for ShardedFile {
             println!("(Read) Iteration: {}", i);
             let shard_name = format!("{}-{}", self.name.clone(), i.to_string());
 
-            if self.objectStorage.exists(shard_name.clone())? {
+            if self.object_storage.exists(shard_name.clone())? {
                 if i == start {
                     let read_size = std::cmp::min((self.shard_size - offset % self.shard_size) as usize, length);
-                    let buf = self.objectStorage
-                        .readPartial(shard_name.clone(), offset % self.shard_size, read_size)?;
+                    let buf = self.object_storage
+                        .partial_read(shard_name.clone(), offset % self.shard_size, read_size)?;
                     buffer.extend_from_slice(&buf);
                     continue;
                 }
                 if i == end {
                     let read_size = ((length as u64 + offset % self.shard_size) % self.shard_size) as usize;
-                    let buf = self.objectStorage
-                        .readPartial(shard_name.clone(), 0, read_size)?;
+                    let buf = self.object_storage
+                        .partial_read(shard_name.clone(), 0, read_size)?;
                     buffer.extend_from_slice(&buf);
                     break;
                 }
-                let buf = self.objectStorage
+                let buf = self.object_storage
                     .read(shard_name.clone())?;
                 buffer.extend_from_slice(&buf);
             } else {
@@ -191,34 +190,34 @@ impl StorageBackend for ShardedFile {
 
             if i == start {
                 let write_len = std::cmp::min((self.shard_size - offset % self.shard_size) as usize, length);
-                if !self.objectStorage.exists(shard_name.clone())? {
+                if !self.object_storage.exists(shard_name.clone())? {
                     let zeroes: Vec<u8> = vec![0_u8; self.shard_size as usize - write_len];
                     let mut buffer: Vec<u8> = Vec::new();
                     buffer.extend_from_slice(&zeroes);
                     buffer.extend_from_slice(&data[0..write_len]);
 
-                    self.objectStorage.write(shard_name.clone(), &buffer)?;
+                    self.object_storage.write(shard_name.clone(), &buffer)?;
                     continue;
                 } else {
-                    self.objectStorage.writePartial(shard_name.clone(), offset % self.shard_size, write_len, &data[0..write_len])?;
+                    self.object_storage.partial_write(shard_name.clone(), offset % self.shard_size, write_len, &data[0..write_len])?;
                     continue;
                 }
             } else if i == end {
                 let write_len = ((length as u64 + offset % self.shard_size) % self.shard_size) as usize;
-                if !self.objectStorage.exists(shard_name.clone())? {
+                if !self.object_storage.exists(shard_name.clone())? {
                     let zeroes: Vec<u8> = vec![0_u8; self.shard_size as usize - write_len];
                     let mut buffer: Vec<u8> = Vec::new();
                     buffer.extend_from_slice(&data[range_start..(range_start + write_len)]);
                     buffer.extend_from_slice(&zeroes);
-                    self.objectStorage.write(shard_name.clone(), &buffer)?;
+                    self.object_storage.write(shard_name.clone(), &buffer)?;
                     break;
                 } else {
-                    self.objectStorage.writePartial(shard_name.clone(), 0, write_len, &data[range_start..(range_start + write_len)])?;
+                    self.object_storage.partial_write(shard_name.clone(), 0, write_len, &data[range_start..(range_start + write_len)])?;
                     break;
                 }
             }
 
-            self.objectStorage.write(shard_name.clone(), &data[range_start..range_end])?;
+            self.object_storage.write(shard_name.clone(), &data[range_start..range_end])?;
         }
         Ok(length)
     }
@@ -234,7 +233,7 @@ impl StorageBackend for ShardedFile {
         for i in start..=end {
             println!("(Flush) Iteration: {}", i);
             let shard_name = format!("{}-{}", self.name.clone(), i.to_string());
-            self.objectStorage.persistObject(shard_name.clone())?;
+            self.object_storage.persist_object(shard_name.clone())?;
         }
 
         Ok(())
