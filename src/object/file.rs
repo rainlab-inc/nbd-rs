@@ -1,7 +1,6 @@
 use std::{
     fs::{File, OpenOptions},
-    io::{Read, Write, Error, ErrorKind},
-    rc::{Rc},
+    io::{Read, Write, Seek, SeekFrom, Error, ErrorKind},
     collections::{HashMap},
     cell::{RefCell, RefMut},
     path::{Path},
@@ -115,6 +114,8 @@ impl<'a> SimpleObjectStorage for FileBackend {
             .unwrap();
 
         file.write_all(data)?;
+        // TODO: Consider file.sync_all()? or file.sync_data()?;
+        //       or at least to it async ? instead of dropping the file
         Ok(())
     }
 
@@ -169,22 +170,52 @@ impl<'a> SimpleObjectStorage for FileBackend {
 impl<'a> PartialAccessObjectStorage for FileBackend {
 
     fn readPartial(&self, objectName: String, offset: u64, length: usize) -> Result<Vec<u8>, Error> {
-        let mut buffer = vec![0_u8; length as usize];
-        let file = self.get_file(objectName).unwrap(); // get or open file
-        let map = file.map(offset, length).unwrap();
-        buffer.copy_from_slice(map.as_ref());
+        // TODO: Use MMAP if file is already open and mmap'ed.
+        // let mut buffer = vec![0_u8; length as usize];
+        // let file = self.get_file(objectName).unwrap(); // get or open file
+        // let map = file.map(offset, length).unwrap();
+        // buffer.copy_from_slice(map.as_ref());
+        // Ok(buffer)
+        let path = self.obj_path(objectName.clone());
+        let mut buffer = vec![0_u8; length];
+        if !self.exists(objectName.clone())? {
+            return Err(Error::new(ErrorKind::NotFound, "Object Not Found"))
+        }
+
+        let mut file = OpenOptions::new()
+            .read(true)
+            .open(path)
+            .unwrap();
+
+        file.seek(SeekFrom::Start(offset))?;
+        file
+            .read_exact(&mut buffer)
+            .expect(&format!("couldn't read object: {:?}", objectName.clone()));
+
         Ok(buffer)
     }
 
     fn writePartial(&self, objectName: String, offset: u64, length: usize, data: &[u8]) -> Result<usize, Error> {
-        self.print();
-        let file = self.get_file(objectName.clone()).unwrap();
-        self.print();
-        let mut mut_pointer = file
-            .into_mut_mapping(offset, length)
-            .map_err(|(e, _)| e)
+        // TODO: Use MMAP if file is already open and mmap'ed.
+        // self.print();
+        // let file = self.get_file(objectName.clone()).unwrap(); // get or open file
+        // self.print();
+        // let mut mut_pointer = file
+        //     .into_mut_mapping(offset, length)
+        //     .map_err(|(e, _)| e)
+        //     .unwrap();
+        // mut_pointer.copy_from_slice(&data);
+        let path = self.obj_path(objectName.clone());
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .open(path)
             .unwrap();
-        mut_pointer.copy_from_slice(&data);
+
+        file.seek(SeekFrom::Start(offset))?;
+        file.write_all(data)?;
+        // TODO: Consider file.sync_all()? or file.sync_data()?;
+        //       or at least to it async ? instead of dropping the file
         Ok(length)
     }
 }
