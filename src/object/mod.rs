@@ -2,6 +2,8 @@ use std::{
     io::{Read, Write, Error},
 };
 
+use url::{Url, ParseError};
+
 pub trait SimpleObjectStorage {
     fn init     (&mut self, connStr: String);
 
@@ -44,8 +46,8 @@ pub trait ObjectStorage: SimpleObjectStorage + PartialAccessObjectStorage + Stre
 
 
 pub fn storage_with_config(config: String) -> Result<Box<dyn ObjectStorage>, Error> {
-    const storage_type = // TODO: parse config as url
-    match storage_type {
+    let issue_list_url = Url::parse(config)?;
+    match issue_list_url.scheme() {
         "file" => {
             Ok(())
         },
