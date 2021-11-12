@@ -2,7 +2,8 @@ use std::{
     fs::{File, OpenOptions},
     io::{Read, Write, Error, ErrorKind},
     rc::{Rc},
-    collections::{HashMap}
+    collections::{HashMap},
+    cell::{RefCell},
 };
 
 use mmap_safe::{MappedFile};
@@ -17,14 +18,14 @@ use crate::object::{
 
 pub struct FileBackend {
     folder_path: String,
-    open_files: HashMap<String, Box<MappedFile>>,
+    open_files: HashMap<String, MappedFile>,
 }
 
 impl Default for FileBackend {
     fn default() -> FileBackend {
         FileBackend {
             folder_path: String::from(""),
-            open_files: HashMap::<String, Box<MappedFile>>::new()
+            open_files: HashMap::<String, MappedFile>::new()
         }
     }
 }
@@ -38,25 +39,25 @@ impl FileBackend {
             .open(objectName.clone())
     }
 
-    fn mmap_file(&self, objectName: String) -> Result<&Box<MappedFile>, Error> {
+    fn mmap_file(&mut self, objectName: String) -> Result<MappedFile, Error> {
         let mut f = OpenOptions::new()
             .read(true)
             .write(true)
             .open(objectName.clone())
             .expect("Unable to open file");
 
-        let mapped_file = match self.open_files.get_key_value(&objectName.clone()) {
+        let mapped_file = match self.open_files.remove_entry(&objectName.clone()) {
             Some(m) => m.1,
             None => {
-                let mapped = MappedFile::new(f);
-                self.open_files.insert(objectName.clone(), Box::new(mapped.unwrap()));
-                &Box::new(mapped.unwrap())
+                let mapped = MappedFile::new(f).unwrap();
+                //self.open_files.insert(objectName.clone(), mapped); // Insert after usage
+                mapped
             }
         };
         Ok(mapped_file)
     }
 
-    fn get_file(&self, objectName: String) -> Result<&Box<MappedFile>, Error> {
+    fn get_file(&mut self, objectName: String) -> Result<MappedFile, Error> {
         // TODO: Check if self.openFiles already has the file, return that
         //let file = self.open_file(objectName, false);
         self.mmap_file(objectName)
@@ -90,7 +91,7 @@ impl<'a> SimpleObjectStorage for FileBackend {
         }
     }
 
-    fn startOperationsOnObject (&self, objectName: String) -> Result<(), Error> {
+    fn startOperationsOnObject (&mut self, objectName: String) -> Result<(), Error> {
         // TODO: Check if self.openFiles already has same file, use Rc.increment_strong_count in that case
 
         let f = OpenOptions::new()
@@ -100,32 +101,32 @@ impl<'a> SimpleObjectStorage for FileBackend {
             .expect("Unable to open file");
 
         // TODO: Mmap? MappedFile::new(f).expect("Something went wrong");
-        self.open_files.insert(objectName.clone(), Box::new(MappedFile::new(f).unwrap()));
+        self.open_files.insert(objectName.clone(), MappedFile::new(f).unwrap());
         Ok(())
     }
 
-    fn endOperationsOnObject(&self, objectName: String) -> Result<(), Error> {
+    fn endOperationsOnObject(&mut self, objectName: String) -> Result<(), Error> {
         // TODO: code below is stupid here. just remove file from this.openFiles
         let file = self.get_file(objectName); // get or open file
         let pointer = file.as_ref().unwrap();
         Ok(drop(pointer))
     }
 
-    fn persistObject(&self, objectName: String) -> Result<(), Error> {
+    fn persistObject(&mut self, objectName: String) -> Result<(), Error> {
         // let file = self.get_file(objectName.clone()).unwrap(); // get or open file
-        // let mut_pointer = file
-        //     .into_mut_mapping(0, self.get_size(objectName).unwrap() as usize)
-        //     .map_err(|(e, _)| e)
-        //     .unwrap();
-        let file = self.get_file(objectName); // get or open file
-        file.flush();
+        let file = self.get_file(objectName.clone()); // get or open file
+        let mut_pointer = file.unwrap()
+            .into_mut_mapping(0, self.get_size(objectName).unwrap() as usize)
+            .map_err(|(e, _)| e)
+            .unwrap();
+        mut_pointer.flush();
         Ok(())
     }
 }
 
 impl<'a> PartialAccessObjectStorage for FileBackend {
 
-    fn readPartial(&self, objectName: String, offset: u64, length: usize) -> Result<Vec<u8>, Error> {
+    fn readPartial(&mut self, objectName: String, offset: u64, length: usize) -> Result<Vec<u8>, Error> {
         let mut buffer = vec![0_u8; length as usize];
         let file = self.get_file(objectName).unwrap(); // get or open file
         let map = &file.map(offset, length).unwrap();
@@ -133,15 +134,15 @@ impl<'a> PartialAccessObjectStorage for FileBackend {
         Ok(buffer)
     }
 
-    fn writePartial(&self, objectName: String, offset: u64, length: usize, data: &[u8]) -> Result<usize, Error> {
-        let mut file = self.get_file(objectName).as_ref(); // get or open file
-        let mut mut_pointer = &file
+    fn writePartial(&mut self, objectName: String, offset: u64, length: usize, data: &[u8]) -> Result<usize, Error> {
+        let file = self.get_file(objectName.clone()); // get or open file
+        let mut mut_pointer = file
             .unwrap()
             .into_mut_mapping(offset, length)
             .map_err(|(e, _)| e)
             .unwrap();
         mut_pointer.copy_from_slice(&data);
-
+        self.open_files.insert(objectName, mut_pointer.unmap());
         Ok(length)
     }
 }
@@ -157,7 +158,7 @@ mod tests {
 
     #[test]
     fn test_file_backend_get_file() {
-        let filesystem = FileBackend {
+        let mut filesystem = FileBackend {
             folder_path: String::from("alpine"),
             ..FileBackend::default()
         };
@@ -168,7 +169,7 @@ mod tests {
 
     #[test]
     fn test_file_backend_mmap() {
-        let filesystem = FileBackend {
+        let mut filesystem = FileBackend {
             folder_path: String::from("alpine"),
             ..FileBackend::default()
         };

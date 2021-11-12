@@ -39,7 +39,7 @@ impl RawImage {
         let mut selfref = RawImage {
             name: name.clone(),
             volume_size: 0_u64,
-            objectStorage: Box::new(storage_with_config(config)),
+            objectStorage: storage_with_config(config),
         };
         selfref.init(name.clone());
         selfref
@@ -48,9 +48,10 @@ impl RawImage {
 
 impl<'a> StorageBackend for RawImage {
     fn init(&mut self, name: String) {
+        /*
         if self.pointer.is_some() {
             return ()
-        }
+        }*/
         // TODO: Init Object Storage
         self.objectStorage
             .startOperationsOnObject(name.clone());
