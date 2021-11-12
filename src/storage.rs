@@ -6,8 +6,9 @@ use std::{
 
 extern crate libc;
 
-
-use crate::object::{ObjectStorage, FileBackend};
+use crate::{
+    object::{ObjectStorage, storage_with_config},
+};
 
 pub trait StorageBackend {
     fn init(&mut self, name: String);
