@@ -99,8 +99,17 @@ impl<'a> SimpleObjectStorage for FileBackend {
     }
 
     fn write(&self, objectName: String, data: &[u8]) -> Result<(), Error> {
-        Err(Error::new(ErrorKind::Unsupported, "Not yet implemented"))
+        let path = self.obj_path(objectName);
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .open(path)
+            .unwrap();
+
+        file.write_all(data)?;
+        Ok(())
     }
+
     fn delete(&self, objectName: String) -> Result<(), Error> {
         Err(Error::new(ErrorKind::Unsupported, "Not yet implemented"))
     }
