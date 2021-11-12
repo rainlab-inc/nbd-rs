@@ -14,6 +14,7 @@ use crate::storage::StorageBackend;
 // https://github.com/NetworkBlockDevice/nbd/blob/master/nbd-server.c#L2362-L2468
 // NBD_OPT_GO | NBD_OPT_INFO: https://github.com/NetworkBlockDevice/nbd/blob/master/nbd-server.c#L2276-L2353
 
+mod object;
 mod storage;
 mod proto;
 mod util;
@@ -278,7 +279,7 @@ impl<'a> NBDServer {
                 } else {
                     NBDServer::simple_reply(clone_stream!(socket), 0_u32, handle);
                 }
-                socket.write(&buffer).expect("Couldn't send data.");
+                socket.write(&buffer.unwrap()).expect("Couldn't send data.");
             }
             proto::NBD_CMD_WRITE => { // 1
                 println!("NBD_CMD_WRITE");

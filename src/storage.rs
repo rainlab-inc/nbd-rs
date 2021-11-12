@@ -8,7 +8,7 @@ extern crate libc;
 
 use mmap_safe::{MappedFile};
 
-use crate::object::ObjectStorage;
+use crate::object::{ObjectStorage, FileBackend};
 
 pub trait StorageBackend {
     fn init(&mut self, name: String);
@@ -17,9 +17,9 @@ pub trait StorageBackend {
 
     fn get_volume_size(&self) -> u64;
 
-    fn read(&self, offset: u64, length: usize) -> Vec<u8>;
+    fn read(&self, offset: u64, length: usize) -> Result<Vec<u8>, Error>;
 
-    fn write(&mut self, offset: u64, length: usize, data: &[u8]) -> Result<(), Error>;
+    fn write(&mut self, offset: u64, length: usize, data: &[u8]) -> Result<usize, Error>;
 
     fn flush(&mut self, offset: u64, length: usize) -> Result<(), Error>;
 
@@ -31,8 +31,8 @@ pub trait StorageBackend {
 pub struct MmapBackend {
     name: String,
     volume_size: u64,
-    pointer: Option<MappedFile>
-    objectStorage: Option<Box<dyn object::ObjectStorage>>,
+    pointer: Option<MappedFile>,
+    objectStorage: Box<dyn ObjectStorage>,
 }
 
 impl MmapBackend {
@@ -40,7 +40,8 @@ impl MmapBackend {
         let mut mmap = MmapBackend {
             name: name.clone(),
             volume_size: 0_u64,
-            pointer: None
+            pointer: None,
+            objectStorage: Box::new(FileBackend::default())
         };
         mmap.init(name.clone());
         mmap
@@ -57,8 +58,7 @@ impl<'a> StorageBackend for MmapBackend {
             .startOperationsOnObject(name.clone())
             .expect("Unable to open object");
 
-        let volume_size = self.objectStorage.get_size(name.clone())
-        self.volume_size = volume_size;
+        self.volume_size = self.objectStorage.get_size(name.clone()).unwrap();
     }
 
     fn get_name(&self) -> String {
@@ -69,28 +69,24 @@ impl<'a> StorageBackend for MmapBackend {
         self.volume_size
     }
 
-    fn read(&self, offset: u64, length: usize) -> Vec<u8> {
-        let buffer = self.objectStorage
-            .readPartial(name.clone(), offset, length)
-            .expect("Unable to read object");
+    fn read(&self, offset: u64, length: usize) -> Result<Vec<u8>, Error> {
+        self.objectStorage
+            .readPartial(self.name.clone(), offset, length)
     }
 
-    fn write(&mut self, offset: u64, length: usize, data: &[u8]) -> Result<(), Error> {
-        let buffer = self.objectStorage
-            .writePartial(name.clone(), offset, length, data)
-            .expect("Unable to write object");
+    fn write(&mut self, offset: u64, length: usize, data: &[u8]) -> Result<usize, Error> {
+        self.objectStorage
+            .writePartial(self.name.clone(), offset, length, data)
     }
 
     fn flush(&mut self, offset: u64, length: usize) -> Result<(), Error> {
         return self.objectStorage
-            .persistObject(name.clone())
-            .expect("Unable to persist object");
+            .persistObject(self.name.clone())
     }
 
     fn close(&mut self) {
-        let objectStorage = self.objectStorage.as_ref().unwrap();
-        objectStorage
-            .endOperationsOnObject(name.clone())
+        self.objectStorage
+            .endOperationsOnObject(self.name.clone())
             .expect("Unable to close object");
     }
 }
@@ -150,7 +146,7 @@ impl StorageBackend for ShardedFile {
         self.volume_size
     }
 
-    fn read(&self, offset: u64, length: usize) -> Vec<u8> {
+    fn read(&self, offset: u64, length: usize) -> Result<Vec<u8>, Error> {
         let mut buffer: Vec<u8> = Vec::new();
         let start = self.shard_index(offset);
         let end = if 0 == (offset + length as u64) % self.shard_size {
@@ -199,10 +195,10 @@ impl StorageBackend for ShardedFile {
                 buffer.extend_from_slice(&vec![0_u8; self.shard_size as usize]);
             }
         }
-        buffer
+        Ok(buffer)
     }
 
-    fn write(&mut self, offset: u64, length: usize, data: &[u8]) -> Result<(), Error> {
+    fn write(&mut self, offset: u64, length: usize, data: &[u8]) -> Result<usize, Error> {
         let start = self.shard_index(offset);
         let end = if 0 == (offset + length as u64) % self.shard_size {
             self.shard_index(offset + length as u64) - 1
@@ -267,7 +263,7 @@ impl StorageBackend for ShardedFile {
             }
             */
         }
-        Ok(())
+        Ok(length)
     }
 
     fn flush(&mut self, offset: u64, length: usize) -> Result<(), Error> {
