@@ -22,9 +22,9 @@ pub trait SimpleObjectStorage {
 
     // Hint interface (Optional, Default=Noop)
     // hints the object storage backend about long access on object, so the backend can do stuff like MMAP
-    fn startOperationsOnObject (&mut self, objectName: String) -> Result<(), Error>; // hints open  (or ++refCount==1?open)
-    fn endOperationsOnObject   (&mut self, objectName: String) -> Result<(), Error>; // hints close (or --refCount==0?close)
-    fn persistObject           (&mut self, objectName: String) -> Result<(), Error>; // hints flush
+    fn startOperationsOnObject (&self, objectName: String) -> Result<(), Error>; // hints open  (or ++refCount==1?open)
+    fn endOperationsOnObject   (&self, objectName: String) -> Result<(), Error>; // hints close (or --refCount==0?close)
+    fn persistObject           (&self, objectName: String) -> Result<(), Error>; // hints flush
 }
 
 pub trait PartialAccessObjectStorage {
@@ -32,7 +32,7 @@ pub trait PartialAccessObjectStorage {
 
     // TODO: these can also have dumb default implementations
     fn readPartial  (&self, objectName: String, offset: u64, length: usize) -> Result<Vec<u8>, Error>;
-    fn writePartial (&mut self, objectName: String, offset: u64, length: usize, data: &[u8]) -> Result<usize, Error>;
+    fn writePartial (&self, objectName: String, offset: u64, length: usize, data: &[u8]) -> Result<usize, Error>;
 }
 
 // With given stream, read `length` bytes, and write to target object, avoids buffering on consumer side
