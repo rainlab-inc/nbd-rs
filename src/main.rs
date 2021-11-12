@@ -3,10 +3,10 @@
 use std::{
     io::{Read, Write},
     net::{SocketAddr, TcpListener, TcpStream},
-    time::{SystemTime, UNIX_EPOCH}
+    time::{SystemTime, UNIX_EPOCH},
 };
 
-use clap::{App, Arg, ArgGroup, crate_authors, crate_version};
+use clap::{App, Arg, crate_authors, crate_version};
 
 use crate::storage::StorageBackend;
 //use std::collections::HashMap;
@@ -16,6 +16,7 @@ use crate::storage::StorageBackend;
 
 mod object;
 mod storage;
+mod object;
 mod proto;
 mod util;
 
@@ -115,12 +116,12 @@ impl<'a> NBDSession {
 
     fn init_storage_driver(image_name: String, driver_name: String) -> Option<Box<dyn StorageBackend>> {
         match driver_name.as_str() {
-            "mmap" => {
-                Some(Box::new(storage::MmapBackend::new(image_name.clone())))
+            "raw" => {
+                Some(Box::new(storage::RawImage::new(image_name.clone())))
             },
             "sharded" => {
                 Some(Box::new(storage::ShardedFile::new(image_name.to_lowercase().clone(), String::from("test"))))
-            }
+            },
             _ => {
                 println!("Couldn't find storage driver: <{}>", driver_name);
                 None

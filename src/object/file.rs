@@ -7,47 +7,6 @@ use std::{
 
 use mmap_safe::{MappedFile};
 
-pub trait SimpleObjectStorage {
-    fn init(&mut self, connStr: String);
-
-    // simplest interface
-    fn get_size (&self, objectName: String) -> Result<u64, Error>;
-    /*
-    fn exists   (&self, objectName: String) -> bool;
-    fn read     (&self, objectName: String) -> Result<&[u8], Error>;
-    fn write    (&self, objectName: String, data: &[u8]) -> Result<(), Error>;
-    fn delete   (&self, objectName: String) -> Result<(), Error>;*/
-
-    // Hint interface (Optional, Default=Noop)
-    // hints the object storage backend about long access on object, so the backend can do stuff like MMAP
-    fn startOperationsOnObject (&mut self, objectName: String) -> Result<(), Error>; // hints open  (or ++refCount==1?open)
-    fn endOperationsOnObject   (&mut self, objectName: String) -> Result<(), Error>; // hints close (or --refCount==0?close)
-    fn persistObject           (&self, objectName: String) -> Result<(), Error>; // hints flush
-}
-
-pub trait PartialAccessObjectStorage {
-    // partial reads/writes
-
-    // TODO: these can also have dumb default implementations
-    fn readPartial  (&self, objectName: String, offset: u64, length: usize) -> Result<Vec<u8>, Error>;
-    fn writePartial (&self, objectName: String, offset: u64, length: usize, data: &[u8]) -> Result<usize, Error>;
-}
-
-// With given stream, read `length` bytes, and write to target object, avoids buffering on consumer side
-pub trait StreamingObjectStorage {
-    // TODO: these can also have dumb default implementations
-    fn readIntoStream         (&self, objectName: String, stream: &impl Write) -> Result<usize, Error>;
-    fn writeFromStream        (&self, objectName: String, stream: &impl Read,  length: usize) -> Result<usize, Error>;
-}
-
-pub trait StreamingPartialAccessObjectStorage {
-    // TODO: these can also have dumb default implementations
-    fn partialReadIntoStream  (&self, objectName: String, stream: &impl Write, offset: u64, length: usize) -> Result<usize, Error>;
-    fn partialWriteFromStream (&self, objectName: String, stream: &impl Read,  offset: u64, length: usize) -> Result<usize, Error>;
-}
-
-pub trait ObjectStorage: SimpleObjectStorage + PartialAccessObjectStorage {}//+ StreamingObjectStorage + StreamingPartialAccessObjectStorage {}
-
 pub struct FileBackend {
     folder_path: String,
     open_files: HashMap<String, Box<MappedFile>>,
@@ -132,15 +91,13 @@ impl<'a> SimpleObjectStorage for FileBackend {
     }
 
     fn persistObject(&self, objectName: String) -> Result<(), Error> {
-        let file = self.get_file(objectName.clone()).unwrap(); // get or open file
-        let mut_pointer = file
-            .into_mut_mapping(0, self.get_size(objectName).unwrap() as usize)
-            .map_err(|(e, _)| e)
-            .unwrap();
-        /*
-        let pointer = BorrowMut::<MappedFile>::borrow_mut(&mut self.pointer);
-        */
-        mut_pointer.flush();
+        // let file = self.get_file(objectName.clone()).unwrap(); // get or open file
+        // let mut_pointer = file
+        //     .into_mut_mapping(0, self.get_size(objectName).unwrap() as usize)
+        //     .map_err(|(e, _)| e)
+        //     .unwrap();
+        let file = self.get_file(objectName); // get or open file
+        file.flush();
         Ok(())
     }
 }

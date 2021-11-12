@@ -1,12 +1,11 @@
 use std::{
-    fs::{File, OpenOptions},
+    fs::{OpenOptions},
     path::{Path},
-    io::{Read, Write, Seek, SeekFrom, Error, ErrorKind}
+    io::{Read, Write, Seek, SeekFrom, Error, ErrorKind},
 };
 
 extern crate libc;
 
-use mmap_safe::{MappedFile};
 
 use crate::object::{ObjectStorage, FileBackend};
 
@@ -26,39 +25,38 @@ pub trait StorageBackend {
     fn close(&mut self);
 }
 
-// Driver: MmapBackend
+// Driver: RawImage
 
-pub struct MmapBackend {
+pub struct RawImage {
     name: String,
     volume_size: u64,
-    pointer: Option<MappedFile>,
     objectStorage: Box<dyn ObjectStorage>,
 }
 
-impl MmapBackend {
-    pub fn new(name: String) -> MmapBackend {
-        let mut mmap = MmapBackend {
+impl RawImage {
+    pub fn new(name: String, config: String) -> RawImage {
+        let mut selfref = RawImage {
             name: name.clone(),
             volume_size: 0_u64,
-            pointer: None,
-            objectStorage: Box::new(FileBackend::default())
+            objectStorage: Box::new(object::storage_with_config(config)),
         };
-        mmap.init(name.clone());
-        mmap
+        selfref.init(name.clone());
+        selfref
     }
 }
 
-impl<'a> StorageBackend for MmapBackend {
+impl<'a> StorageBackend for RawImage {
     fn init(&mut self, name: String) {
         if self.pointer.is_some() {
             return ()
         }
         // TODO: Init Object Storage
         self.objectStorage
-            .startOperationsOnObject(name.clone())
-            .expect("Unable to open object");
+            .startOperationsOnObject(name.clone());
+            // .expect("Unable to open object");
 
-        self.volume_size = self.objectStorage.get_size(name.clone()).unwrap();
+        self.volume_size = self.objectStorage.get_size(name.clone()).unwrap_or(0);
+        self.name = name.clone();
     }
 
     fn get_name(&self) -> String {
@@ -69,7 +67,7 @@ impl<'a> StorageBackend for MmapBackend {
         self.volume_size
     }
 
-    fn read(&self, offset: u64, length: usize) -> Result<Vec<u8>, Error> {
+    fn read(&self, offset: u64, length: usize) -> Result<&[u8], Error> {
         self.objectStorage
             .readPartial(self.name.clone(), offset, length)
     }
@@ -80,14 +78,13 @@ impl<'a> StorageBackend for MmapBackend {
     }
 
     fn flush(&mut self, offset: u64, length: usize) -> Result<(), Error> {
-        return self.objectStorage
+        self.objectStorage
             .persistObject(self.name.clone())
     }
 
     fn close(&mut self) {
         self.objectStorage
             .endOperationsOnObject(self.name.clone())
-            .expect("Unable to close object");
     }
 }
 
