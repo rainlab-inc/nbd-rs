@@ -1,5 +1,5 @@
-// use std::io;
-// use std::io::prelude::*;
+#![allow(unused_variables)]
+
 use std::{
     io::{Read, Write},
     net::{SocketAddr, TcpListener, TcpStream},
@@ -10,7 +10,6 @@ use std::{
 use clap::{App, Arg, crate_authors, crate_version};
 
 use crate::storage::StorageBackend;
-//use std::collections::HashMap;
 
 // https://github.com/NetworkBlockDevice/nbd/blob/master/nbd-server.c#L2362-L2468
 // NBD_OPT_GO | NBD_OPT_INFO: https://github.com/NetworkBlockDevice/nbd/blob/master/nbd-server.c#L2276-L2353
@@ -301,7 +300,8 @@ impl<'a> NBDServer {
                         let driver_name = driver.get_name();
 
                         // TODO: Handle errors
-                        driver.write(offset, datalen as usize, &data);
+                        driver.write(offset, datalen as usize, &data)
+                            .unwrap(); // panics on error
 
                         if structured_reply == true {
                             NBDServer::structured_reply(
