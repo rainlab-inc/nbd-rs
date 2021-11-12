@@ -51,7 +51,7 @@ struct NBDExportConfig {
 impl NBDExportConfig {
     fn new(driver_type: String, conn_str: String) -> NBDExportConfig {
         if !["raw", "sharded"].contains(&driver_type.as_str()) {
-            panic!(format!("Driver must be one of the values `raw` or `sharded`. Found '{}'", driver_type));
+            panic!("Driver must be one of the values `raw` or `sharded`. Found '{}'", driver_type);
         }
         NBDExportConfig {
             driver_type: driver_type,
