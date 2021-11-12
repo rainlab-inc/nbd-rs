@@ -80,8 +80,24 @@ impl<'a> SimpleObjectStorage for FileBackend {
     }
 
     fn read(&self, objectName: String) -> Result<Vec<u8>, Error> {
-        Err(Error::new(ErrorKind::Unsupported, "Not yet implemented"))
+        let path = self.obj_path(objectName);
+        let mut buffer: Vec<u8> = Vec::new();
+        if !self.exists(objectName)? {
+            return Err(Error::new(ErrorKind::NotFound, "Object Not Found"))
+        }
+
+        let mut file = OpenOptions::new()
+            .read(true)
+            .open(path)
+            .unwrap();
+
+        file
+            .read_to_end(&mut buffer)
+            .expect(&format!("couldn't read object: {:?}", objectName));
+
+        Ok(buffer)
     }
+
     fn write(&self, objectName: String, data: &[u8]) -> Result<(), Error> {
         Err(Error::new(ErrorKind::Unsupported, "Not yet implemented"))
     }
