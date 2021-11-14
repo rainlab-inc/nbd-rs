@@ -177,8 +177,7 @@ impl StorageBackend for ShardedFile {
             let path = Path::new(&self.storage_path)
                 .join(self.name.clone())
                 .join(format!("{}-{}", self.name.clone(), i.to_string()));
-            let file_not_exists = !&path.is_file();
-            if !file_not_exists {
+            if path.is_file() {
                 let mut file = OpenOptions::new()
                     .read(true)
                     .open(path)
@@ -186,33 +185,29 @@ impl StorageBackend for ShardedFile {
                 if i == start {
                     let read_size = std::cmp::min((self.shard_size - offset % self.shard_size) as usize, length);
                     file.seek(SeekFrom::Start(offset % self.shard_size));
-                    buffer.extend_from_slice(&vec![0_u8; read_size]);
-                    file.read_exact(&mut buffer);
+                    let mut buf = vec![0_u8; read_size];
+                    file.read_exact(&mut buf).expect("read failed");
+                    buffer.extend_from_slice(&buf);
                     continue;
                 }
                 if i == end {
                     let read_size = ((length as u64 + offset % self.shard_size) % self.shard_size) as usize;
-                    let mut fill_buffer = vec![0_u8; read_size];
-                    file.read_exact(&mut fill_buffer);
-                    buffer.extend_from_slice(&fill_buffer);
-                    //file.read_exact(&mut buffer);
-                    continue;
+                    let mut buf = vec![0_u8; read_size];
+                    file.read_exact(&mut buf).expect("read failed");
+                    buffer.extend_from_slice(&buf);
+                    break;
                 }
                 file.read_to_end(&mut buffer).expect(&format!("couldn't read from file: {:?}-{}", self.name.clone(), i.to_string()));
             } else {
                 if i == start {
                     let read_size = std::cmp::min((self.shard_size - offset % self.shard_size) as usize, length);
-                    if file_not_exists {
-                        buffer.extend_from_slice(&vec![0_u8; read_size]);
-                        continue;
-                    }
+                    buffer.extend_from_slice(&vec![0_u8; read_size]);
+                    continue;
                 }
                 if i == end {
                     let read_size = ((length as u64 + offset % self.shard_size) % self.shard_size) as usize;
-                    if file_not_exists {
-                        buffer.extend_from_slice(&vec![0_u8; read_size]);
-                        continue;
-                    }
+                    buffer.extend_from_slice(&vec![0_u8; read_size]);
+                    break;
                 }
                 buffer.extend_from_slice(&vec![0_u8; self.shard_size as usize]);
             }
@@ -267,11 +262,11 @@ impl StorageBackend for ShardedFile {
                     buffer.extend_from_slice(&zeroes);
                     file.write_all(&buffer)?;
                     //file.sync_all()?
-                    continue;
+                    break;
                 } else {
                     file.write_all(&data[range_start..(range_start + read_size)])?;
                     //file.sync_all()?
-                    continue;
+                    break;
                 }
             }
             let err = file.write(&data[range_start..range_end]);

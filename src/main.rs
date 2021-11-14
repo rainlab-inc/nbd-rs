@@ -5,6 +5,9 @@ use std::{
     net::{SocketAddr, TcpListener, TcpStream},
     time::{SystemTime, UNIX_EPOCH}
 };
+
+use clap::{App, Arg, ArgGroup, crate_authors, crate_version};
+
 use crate::storage::StorageBackend;
 //use std::collections::HashMap;
 
@@ -36,6 +39,25 @@ struct NBDOption {
     info_reqs: Vec<u16>, //data: [u8]
 }
 */
+
+struct NBDExport {
+    export_name: String,
+    driver_type: String,
+    conn_str: String
+}
+
+impl NBDExport {
+    fn new(export_name: String, driver_type: String, conn_str: String) -> NBDExport {
+        if !["mmap", "sharded"].contains(&driver_type.as_str()) {
+            panic!(format!("Driver must be one of the values `mmap` or `sharded`. Found '{}'", driver_type));
+        }
+        NBDExport {
+            export_name: export_name,
+            driver_type: driver_type,
+            conn_str: conn_str
+        }
+    }
+}
 
 struct NBDSession {
     socket: TcpStream,
@@ -112,10 +134,11 @@ struct NBDServer {
     session: Option<NBDSession>,
     host: String,
     port: u16,
+    exports: Vec<NBDExport>
 }
 
 impl<'a> NBDServer {
-    fn new(host: String, port: u16) -> NBDServer {
+    fn new(host: String, port: u16, exports: Vec<NBDExport>) -> NBDServer {
         let addr: SocketAddr = format!("{}:{}", host, port).parse().unwrap();
         let socket_addr = addr.clone();
 
@@ -125,6 +148,7 @@ impl<'a> NBDServer {
             session: None,
             host,
             port,
+            exports
         }
     }
 
@@ -480,7 +504,7 @@ impl<'a> NBDServer {
                 clone_stream!(socket),
                 session.flags,
                 session.structured_reply,
-                String::from("sharded"),
+                self.get_driver_type_from_export_name(name.clone()),
                 name.clone().to_lowercase(),
                 session.metadata_context_id
             ));
@@ -622,12 +646,13 @@ impl<'a> NBDServer {
             0
         );
         if (opt == proto::NBD_OPT_GO) & (self.session.as_ref().unwrap().driver.is_none()) {
+            let driver_type = self.get_driver_type_from_export_name(name.clone());
             let mut session = self.session.take().unwrap();
             self.session = Some(NBDSession::new(
                 clone_stream!(socket),
                 session.flags,
                 session.structured_reply,
-                String::from("sharded"),
+                driver_type,
                 name.clone(),
                 session.metadata_context_id
             ));
@@ -672,9 +697,52 @@ impl<'a> NBDServer {
             0
         );
     }
+
+    fn get_driver_type_from_export_name(&self, export_name: String) -> String {
+        let exports: Vec<&NBDExport> = self.exports
+            .iter()
+            .filter(|export| export.export_name.to_lowercase() == export_name.to_lowercase())
+            .collect();
+        let export = exports.first();
+        if export.is_none() {
+            return String::from("");
+        }
+        export.unwrap().driver_type.clone()
+    }
 }
 
 fn main() {
-    let mut server = NBDServer::new("0.0.0.0".to_string(), 10809);
+    let matches = App::new("nbd-rs")
+        .about("NBD Server written in Rust.")
+        .author(crate_authors!())
+        .version(crate_version!())
+        .arg(
+            Arg::with_name("export")
+                .short("e")
+                .long("export")
+                .takes_value(true)
+                .value_names(&["export_name", "driver", "conn_str"])
+                .required(true)
+                .multiple(true)
+                .number_of_values(3)
+                .long_help(
+"USAGE:
+[-e | --export EXPORT_NAME; DRIVER (mmap, sharded); CONN_STR]...
+Sets the export(s) via `export` argument. Must be used at least once."),
+        )
+        .get_matches();
+    let vals: Vec<String> = matches.values_of("export")
+        .unwrap()
+        .map(|val| val.to_string())
+        .collect();
+    let mut exports: Vec<NBDExport> = Vec::new();
+    for i in 0..(matches.occurrences_of("export") as usize) {
+        exports.push(NBDExport::new(
+            vals[i * 3].clone(),
+            vals[i * 3 + 1].clone(),
+            vals[i * 3 + 2].clone()
+        ));
+    }
+    let mut server = NBDServer::new("0.0.0.0".to_string(), 10809, exports);
     server.listen();
 }
