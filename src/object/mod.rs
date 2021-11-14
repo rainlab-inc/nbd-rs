@@ -8,6 +8,9 @@ pub use self::config::storage_with_config;
 mod file;
 pub use self::file::FileBackend;
 
+mod s3;
+pub use self::s3::S3Backend;
+
 pub trait SimpleObjectStorage {
     fn init     (&mut self, conn_str: String);
 
