@@ -15,6 +15,7 @@ use crate::object::{
 use reqwest::Client;
 use rusty_s3::{Bucket, Credentials, S3Action, UrlStyle};
 
+#[derive(Debug)]
 struct S3Config {
     name: String,
     region: String,
@@ -35,6 +36,7 @@ struct S3ObjectMeta {
 
 impl S3Client {
     pub fn new(config: S3Config) -> S3Client {
+        println!("S3Client.config: {:?}", &config);
         S3Client {
             config: config
         }

@@ -37,6 +37,7 @@ impl FileBackend {
     }
 
     pub fn new(config: String) -> FileBackend {
+        println!("FileBackend.config: {:?}", &config);
         FileBackend {
             folder_path: config.clone(),
             open_files: RefCell::<HashMap<String, Rc<RefCell<MappedFile>>>>::new(
