@@ -513,6 +513,7 @@ impl<'a> NBDServer {
             proto::NBD_REP_INFO,
             12
         );
+        // FIXME! selected_export could be None. a proper error must be returned
         let selected_export = self.exports.get_key_value(&name.to_lowercase()).unwrap();
         let session = self.session.as_ref().unwrap();
         let mut volume_size: u64 = 256 * 1024 * 1024;
