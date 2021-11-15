@@ -43,16 +43,19 @@ struct NBDOption {
 
 #[derive(Hash)]
 struct NBDExportConfig {
+    name: String,
     driver_type: String,
     conn_str: String
 }
 
 impl NBDExportConfig {
-    fn new(driver_type: String, conn_str: String) -> NBDExportConfig {
+    fn new(name: String, driver_type: String, conn_str: String) -> NBDExportConfig {
         if !["raw", "sharded"].contains(&driver_type.as_str()) {
             panic!("Driver must be one of the values `raw` or `sharded`. Found '{}'", driver_type);
         }
+        println!("+ export {:?} -> {:?}({:?})", &name, &driver_type, &conn_str);
         NBDExportConfig {
+            name: name,
             driver_type: driver_type,
             conn_str: conn_str
         }
@@ -758,6 +761,7 @@ Sets the export(s) via `export` argument. Must be used at least once."),
     for i in 0..(matches.occurrences_of("export") as usize) {
         exports.insert(vals[i * 3].clone(),
             NBDExportConfig::new(
+                vals[i * 3].clone(),
                 vals[i * 3 + 1].clone(),
                 vals[i * 3 + 2].clone()
             )
