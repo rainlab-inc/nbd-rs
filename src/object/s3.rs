@@ -88,10 +88,10 @@ impl S3Backend {
                 name: "nbd-rs".to_string(),
                 region: "eu-west-1".to_string(), // TODO: Derive from URL
                 endpoint: format!("{}://{}", parsed_url.scheme(), parsed_url.host_str().unwrap()).parse().unwrap(),
-                credentials: Credentials::new(parsed_url.username(), parsed_url.password()),
+                credentials: Credentials::new(parsed_url.username(), parsed_url.password().unwrap()),
                 path_style: UrlStyle::VirtualHost, // TODO: Derive from URL
             }),
-            bucket: parsed_url.path_segments().0.to_string(),
+            bucket: parsed_url.path_segments().unwrap().next().unwrap().to_string(),
         }
     }
 }
