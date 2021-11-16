@@ -1,5 +1,6 @@
 use std::{
-    io::{Read, Write, Error, ErrorKind},
+    io::{Read, Error, ErrorKind},
+    time::{Duration},
 };
 use url::{Url};
 
@@ -12,8 +13,9 @@ use crate::object::{
 };
 
 // https://crates.io/crates/rusty-s3/0.2.0
-use reqwest::Client;
+use reqwest::blocking::Client;
 use rusty_s3::{Bucket, Credentials, S3Action, UrlStyle};
+use rusty_s3::actions::{GetObject,CreateBucket};
 
 #[derive(Debug)]
 struct S3Config {
@@ -43,15 +45,54 @@ impl S3Client {
     }
 
     pub fn ensure_bucket(&self, name: String) -> Result<(), Error> {
-        Err(Error::new(ErrorKind::Unsupported, "Not yet implemented"))
+        let client = Client::new();
+        let bucket = Bucket::new(self.config.endpoint.clone(), self.config.path_style, name, self.config.region.clone()).unwrap();
+        let action = CreateBucket::new(&bucket, &self.config.credentials);
+        let signed_url = action.sign(Duration::from_secs(30)); // 30 secs
+        let response = client
+            .put(signed_url)
+            .send();
+
+        if response.is_err() {
+            return Err(Error::new(ErrorKind::Other, "S3 req failed"));
+        }
+        let response_err = response.unwrap().error_for_status();
+        if response_err.is_err() {
+            return Err(Error::new(ErrorKind::Other, "S3 req failed"));
+        }
+        Ok(())
     }
 
     pub fn get_object_list(&self, bucket: String) -> Result<Vec<String>, Error> {
         Err(Error::new(ErrorKind::Unsupported, "Not yet implemented"))
     }
 
-    pub fn get_object(&self, bucket: String, name: String) -> Result<Vec<u8>, Error> {
-        Err(Error::new(ErrorKind::Unsupported, "Not yet implemented"))
+    pub fn get_object(&self, bucket_name: String, name: String) -> Result<Vec<u8>, Error> {
+        let client = Client::new();
+        let bucket = Bucket::new(self.config.endpoint.clone(), self.config.path_style, bucket_name, self.config.region.clone()).unwrap();
+        let mut action = GetObject::new(&bucket, Some(&self.config.credentials), &name);
+        action
+            .query_mut()
+            .insert("response-cache-control", "no-cache, no-store");
+        let signed_url = action.sign(Duration::from_secs(30)); // 30 secs
+        let response_res = client.get(signed_url).send();
+
+        if response_res.is_err() {
+            return Err(Error::new(ErrorKind::Other, "S3 req failed"));
+        }
+
+        let response_mayerr = response_res.unwrap().error_for_status();
+        if response_mayerr.is_err() {
+            return Err(Error::new(ErrorKind::Other, "S3 req failed"));
+        }
+
+        let mut response = response_mayerr.unwrap();
+        let mut data = Vec::new();
+        if response.read_to_end(&mut data).is_err() {
+            return Err(Error::new(ErrorKind::Other, "S3 req failed: unable to read"));
+        }
+
+        Ok(data)
     }
 
     pub fn get_object_partial(&self, bucket: String, name: String, offset: u64, length: usize) -> Result<Vec<u8>, Error> {
@@ -91,7 +132,7 @@ impl S3Backend {
                 region: "eu-west-1".to_string(), // TODO: Derive from URL
                 endpoint: format!("{}://{}", parsed_url.scheme(), parsed_url.host_str().unwrap()).parse().unwrap(),
                 credentials: Credentials::new(parsed_url.username(), parsed_url.password().unwrap()),
-                path_style: UrlStyle::VirtualHost, // TODO: Derive from URL
+                path_style: UrlStyle::Path, // UrlStyle::VirtualHost, // TODO: Derive from URL
             }),
             bucket: parsed_url.path_segments().unwrap().next().unwrap().to_string(),
         }
