@@ -10,4 +10,4 @@ mmap-safe = "0.0.2"
 clap = "2.33"
 url = "2.2"
 rusty-s3 = "0.2.0"
-reqwest = "0.11"
+reqwest = { version = "0.11", features = ["blocking"] }
