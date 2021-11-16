@@ -4,14 +4,20 @@ stages:
   - test
   - release
 
+variables:
+  BUILD_BASE: rust:1 # rust:1-alpine3.14
+
 dep:
-  image: rust:1-alpine3.14
+  image: $BUILD_BASE
   stage: dep
   script:
+    - mkdir .cargo
+    - export CARGO_HOME=$(pwd)/.cargo
     - cargo install --path .
   cache:
     - &cache_settings
       paths:
+      - .cargo
       - target/debug
       # - target/release
       key: &cache_key
@@ -20,11 +26,13 @@ dep:
       policy: pull-push
 
 build:latest:
-  image: rust:1-alpine3.14
+  image: $BUILD_BASE
   stage: build
   tags:
     - docker
   script:
+    - mkdir .cargo
+    - export CARGO_HOME=$(pwd)/.cargo
     - cargo build
   only:
     - master
@@ -37,11 +45,13 @@ build:latest:
     expire_in: 1 month
 
 build:release:
-  image: rust:1-alpine3.14
+  image: $BUILD_BASE
   stage: release
   tags:
     - docker
   script:
+    - mkdir .cargo
+    - export CARGO_HOME=$(pwd)/.cargo
     - cargo build --release
   only:
     - tags
@@ -51,11 +61,13 @@ build:release:
     expire_in: never
 
 build:dev:
-  image: rust:1-alpine3.14
+  image: $BUILD_BASE
   stage: build
   tags:
     - docker
   script:
+    - mkdir .cargo
+    - export CARGO_HOME=$(pwd)/.cargo
     - cargo build
   except:
     - master
@@ -68,11 +80,13 @@ build:dev:
     expire_in: 2 days
 
 test:unit:
-  image: rust:1-alpine3.14
+  image: $BUILD_BASE
   stage: test
   before_script:
     - fallocate -l 64M alpine # dummy image file
   script:
+    - mkdir .cargo
+    - export CARGO_HOME=$(pwd)/.cargo
     - cargo test -- --test-threads 1
   after_script:
     - rm alpine
