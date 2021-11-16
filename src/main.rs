@@ -11,6 +11,9 @@ use clap::{App, Arg, crate_authors, crate_version};
 
 use crate::storage::StorageBackend;
 
+use log;
+use env_logger;
+
 // https://github.com/NetworkBlockDevice/nbd/blob/master/nbd-server.c#L2362-L2468
 // NBD_OPT_GO | NBD_OPT_INFO: https://github.com/NetworkBlockDevice/nbd/blob/master/nbd-server.c#L2276-L2353
 
@@ -735,6 +738,8 @@ impl<'a> NBDServer {
 }
 
 fn main() {
+    env_logger::init();
+    log::trace!("Parsing arguments");
     let matches = App::new("nbd-rs")
         .about("NBD Server written in Rust.")
         .author(crate_authors!())

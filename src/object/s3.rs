@@ -3,6 +3,7 @@ use std::{
     time::{Duration},
 };
 use url::{Url};
+use log;
 
 use crate::object::{
     ObjectStorage,
@@ -68,6 +69,7 @@ impl S3Client {
     }
 
     pub fn get_object(&self, bucket_name: String, name: String) -> Result<Vec<u8>, Error> {
+        log::debug!("S3Client.get_object({}, {})", bucket_name.clone(), name.clone());
         let client = Client::new();
         let bucket = Bucket::new(self.config.endpoint.clone(), self.config.path_style, bucket_name, self.config.region.clone()).unwrap();
         let mut action = GetObject::new(&bucket, Some(&self.config.credentials), &name);
@@ -76,6 +78,7 @@ impl S3Client {
             .insert("response-cache-control", "no-cache, no-store");
         let signed_url = action.sign(Duration::from_secs(30)); // 30 secs
         let response_res = client.get(signed_url).send();
+        log::trace!("S3Client.get_object: response handling");
 
         if response_res.is_err() {
             return Err(Error::new(ErrorKind::Other, "S3 req failed"));
