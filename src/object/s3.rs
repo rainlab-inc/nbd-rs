@@ -14,7 +14,11 @@ use crate::object::{
 };
 
 // https://crates.io/crates/rusty-s3/0.2.0
-use reqwest::blocking::Client;
+use reqwest::{
+    blocking::Client,
+    StatusCode,
+};
+
 use rusty_s3::{Bucket, Credentials, S3Action, UrlStyle};
 use rusty_s3::actions::{GetObject,CreateBucket};
 
@@ -59,7 +63,7 @@ impl S3Client {
         }
         let response_err = response.unwrap().error_for_status();
         if response_err.is_err() {
-            return Err(Error::new(ErrorKind::Other, "S3 req failed"));
+            return Err(Error::new(ErrorKind::Other, "S3 req failed: HTTP Status"));
         }
         Ok(())
     }
@@ -84,12 +88,16 @@ impl S3Client {
             return Err(Error::new(ErrorKind::Other, "S3 req failed"));
         }
 
-        let response_mayerr = response_res.unwrap().error_for_status();
-        if response_mayerr.is_err() {
-            return Err(Error::new(ErrorKind::Other, "S3 req failed"));
+        let mut response = response_res.unwrap();
+        let status = response.status();
+        if status == StatusCode::NOT_FOUND {
+            return Err(Error::new(ErrorKind::NotFound, "Object Not Found"));
+        }
+        else if status.as_u16() != 200 {
+            return Err(Error::new(ErrorKind::Other, format!("S3 req failed: HTTP Status {}", status)));
         }
 
-        let mut response = response_mayerr.unwrap();
+        // let mut response = response_mayerr.unwrap();
         let mut data = Vec::new();
         if response.read_to_end(&mut data).is_err() {
             return Err(Error::new(ErrorKind::Other, "S3 req failed: unable to read"));
@@ -100,19 +108,19 @@ impl S3Client {
 
     pub fn get_object_partial(&self, bucket: String, name: String, offset: u64, length: usize) -> Result<Vec<u8>, Error> {
         // Range: bytes=2651761- kindof request header is supported, apparently
-        Err(Error::new(ErrorKind::Unsupported, "Not yet implemented"))
+        Err(Error::new(ErrorKind::Unsupported, "Not yet implemented: S3Client::get_object_partial"))
     }
 
     pub fn get_object_meta(&self, bucket: String, name: String) -> Result<S3ObjectMeta, Error> {
-        Err(Error::new(ErrorKind::Unsupported, "Not yet implemented"))
+        Err(Error::new(ErrorKind::Unsupported, "Not yet implemented: S3Client::get_object_meta"))
     }
 
     pub fn delete_object(&self, bucket: String, name: String) -> Result<(), Error> {
-        Err(Error::new(ErrorKind::Unsupported, "Not yet implemented"))
+        Err(Error::new(ErrorKind::Unsupported, "Not yet implemented: S3Client::delete_object"))
     }
 
     pub fn put_object(&self, bucket: String, name: String, data: &[u8]) -> Result<S3ObjectMeta, Error> {
-        Err(Error::new(ErrorKind::Unsupported, "Not yet implemented"))
+        Err(Error::new(ErrorKind::Unsupported, "Not yet implemented: S3Client::put_object"))
     }
 
 }
@@ -133,7 +141,11 @@ impl S3Backend {
             client: S3Client::new(S3Config {
                 name: "nbd-rs".to_string(),
                 region: "eu-west-1".to_string(), // TODO: Derive from URL
-                endpoint: format!("{}://{}", parsed_url.scheme(), parsed_url.host_str().unwrap()).parse().unwrap(),
+                endpoint: format!("{}://{}:{}",
+                    parsed_url.scheme(),
+                    parsed_url.host_str().unwrap(),
+                    parsed_url.port_or_known_default().unwrap().to_string(),
+                    ).parse().unwrap(),
                 credentials: Credentials::new(parsed_url.username(), parsed_url.password().unwrap()),
                 path_style: UrlStyle::Path, // UrlStyle::VirtualHost, // TODO: Derive from URL
             }),
@@ -197,7 +209,7 @@ impl PartialAccessObjectStorage for S3Backend {
         // TODO: FETCH into Vec<u8>
         // TODO: PATCH it partially
         // TODO: PUT BACK
-        Err(Error::new(ErrorKind::Unsupported, "Not yet implemented"))
+        Err(Error::new(ErrorKind::Unsupported, "Not yet implemented: S3Backend::partial_write"))
     }
 }
 
