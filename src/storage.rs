@@ -113,6 +113,10 @@ impl ShardedBlock {
         let volume_size: u64 = string.parse().unwrap();
         volume_size
     }
+
+    pub fn shard_name(&self, index: usize) -> String {
+        format!("{}/block-{}", self.name.clone(), index).to_string()
+    }
 }
 
 impl StorageBackend for ShardedBlock {
@@ -140,7 +144,7 @@ impl StorageBackend for ShardedBlock {
         println!("(Read) Start: {}, End: {}", start, end);
         for i in start..=end {
             println!("(Read) Iteration: {}", i);
-            let shard_name = format!("{}-{}", self.name.clone(), i.to_string());
+            let shard_name = self.shard_name(i);
 
             if self.object_storage.exists(shard_name.clone())? {
                 if i == start {
@@ -187,7 +191,7 @@ impl StorageBackend for ShardedBlock {
         println!("(Write) Start: {}, End: {}", start, end);
         for i in start..=end {
             println!("(Write) Iteration: {}", i);
-            let shard_name = format!("{}-{}", self.name.clone(), i.to_string());
+            let shard_name = self.shard_name(i);
 
             let range_start = (offset % self.shard_size + (i as u64) * self.shard_size) as usize;
             let range_end = (offset % self.shard_size + (i as u64 + 1) * self.shard_size) as usize;
@@ -236,7 +240,7 @@ impl StorageBackend for ShardedBlock {
         println!("(Flush) Start: {}, End: {}", start, end);
         for i in start..=end {
             println!("(Flush) Iteration: {}", i);
-            let shard_name = format!("{}-{}", self.name.clone(), i.to_string());
+            let shard_name = self.shard_name(i);
             self.object_storage.persist_object(shard_name.clone())?;
         }
 
