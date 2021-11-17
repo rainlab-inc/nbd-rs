@@ -86,6 +86,9 @@ pub struct ShardedBlock {
 
 impl ShardedBlock {
     pub fn new(name: String, config: String) -> ShardedBlock {
+        // TODO: Allow configuring disk size in config string
+        //       or a setting like `create=true`
+        // TODO: Allow configuring shard size in config string
         let default_shard_size: u64 = 4 * 1024 * 1024;
         let mut sharded_file = ShardedBlock {
             name: name.clone(),
@@ -104,6 +107,7 @@ impl ShardedBlock {
     pub fn size_of_volume(&self) -> u64 {
         let shard_name = format!("{}/size", self.name.clone());
         let filedata = self.object_storage.read(shard_name).unwrap(); // TODO: Errors?
+        // TODO: Allow file to not exist, create if does not exist
         let mut string = str::from_utf8(&filedata).unwrap().to_string();
         string.retain(|c| !c.is_whitespace());
         let volume_size: u64 = string.parse().unwrap();

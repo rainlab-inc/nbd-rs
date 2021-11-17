@@ -20,7 +20,7 @@ use reqwest::{
 };
 
 use rusty_s3::{Bucket, Credentials, S3Action, UrlStyle};
-use rusty_s3::actions::{GetObject,CreateBucket};
+use rusty_s3::actions::{GetObject,HeadObject,CreateBucket};
 
 #[derive(Debug)]
 struct S3Config {
@@ -111,8 +111,40 @@ impl S3Client {
         Err(Error::new(ErrorKind::Unsupported, "Not yet implemented: S3Client::get_object_partial"))
     }
 
-    pub fn get_object_meta(&self, bucket: String, name: String) -> Result<S3ObjectMeta, Error> {
-        Err(Error::new(ErrorKind::Unsupported, "Not yet implemented: S3Client::get_object_meta"))
+    pub fn get_object_meta(&self, bucket_name: String, name: String) -> Result<S3ObjectMeta, Error> {
+        log::debug!("S3Client.get_object_meta({}, {})", bucket_name.clone(), name.clone());
+        let client = Client::new();
+        let bucket = Bucket::new(self.config.endpoint.clone(), self.config.path_style, bucket_name.clone(), self.config.region.clone()).unwrap();
+        let mut action = HeadObject::new(&bucket, Some(&self.config.credentials), &name);
+        action
+            .query_mut()
+            .insert("response-cache-control", "no-cache, no-store");
+        let signed_url = action.sign(Duration::from_secs(300));
+        let response_res = client.get(signed_url).send();
+        log::trace!("S3Client.get_object: response handling");
+
+        if response_res.is_err() {
+            return Err(Error::new(ErrorKind::Other, "S3 req failed"));
+        }
+
+        let mut response = response_res.unwrap();
+        let status = response.status();
+        if status == StatusCode::NOT_FOUND {
+            log::debug!("S3Client.get_object_meta: NotFound");
+            return Err(Error::new(ErrorKind::NotFound, "Object Not Found"));
+        }
+        else if status.as_u16() != 200 {
+            return Err(Error::new(ErrorKind::Other, format!("S3 req failed: HTTP Status {}", status)));
+        }
+
+        let headers = response.headers();
+        let object_meta = S3ObjectMeta {
+            bucket: bucket_name.clone(),
+            name: name.clone(),
+            size: headers.get("Content-Length").unwrap().to_str().unwrap().parse().unwrap(),
+        };
+
+        Ok(object_meta)
     }
 
     pub fn delete_object(&self, bucket: String, name: String) -> Result<(), Error> {
