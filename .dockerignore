@@ -1,3 +1,5 @@
 Dockerfile
 /target
+/minio-data
+.git
 **/*.rs.bk
