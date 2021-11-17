@@ -1,6 +1,5 @@
 use std::{
     io::{Read, Error, ErrorKind},
-    time::{Duration},
 };
 use url::{Url};
 use log;
@@ -13,22 +12,18 @@ use crate::object::{
     StreamingPartialAccessObjectStorage,
 };
 
-// https://crates.io/crates/rusty-s3/0.2.0
-use reqwest::{
-    blocking::Client,
-    StatusCode,
-};
-
-use rusty_s3::{Bucket, Credentials, S3Action, UrlStyle};
-use rusty_s3::actions::{GetObject,HeadObject,CreateBucket};
+use s3::bucket::Bucket;
+use s3::creds::Credentials;
+use s3::region::Region;
 
 #[derive(Debug)]
 struct S3Config {
     name: String,
     region: String,
-    endpoint: Url,
-    credentials: Credentials,
-    path_style: UrlStyle,
+    endpoint: String,
+    access_key: String,
+    secret_key: String,
+    path_style: bool,
 }
 
 struct S3Client {
@@ -49,22 +44,19 @@ impl S3Client {
         }
     }
 
-    pub fn ensure_bucket(&self, name: String) -> Result<(), Error> {
-        let client = Client::new();
-        let bucket = Bucket::new(self.config.endpoint.clone(), self.config.path_style, name, self.config.region.clone()).unwrap();
-        let action = CreateBucket::new(&bucket, &self.config.credentials);
-        let signed_url = action.sign(Duration::from_secs(30)); // 30 secs
-        let response = client
-            .put(signed_url)
-            .send();
+    pub fn bucket(&self, name: String) -> Bucket {
+        let credentials = Credentials::new(Some(&self.config.access_key.clone()), Some(&self.config.secret_key.clone()), None, None, None).unwrap();
+        let region = Region::Custom { region: self.config.region.clone(), endpoint: self.config.endpoint.clone() };
+        let mut bucket = Bucket::new(&name, region, credentials).unwrap();
+        if self.config.path_style {
+            bucket.set_path_style();
+        }
+        bucket
+    }
 
-        if response.is_err() {
-            return Err(Error::new(ErrorKind::Other, "S3 req failed"));
-        }
-        let response_err = response.unwrap().error_for_status();
-        if response_err.is_err() {
-            return Err(Error::new(ErrorKind::Other, "S3 req failed: HTTP Status"));
-        }
+    pub fn ensure_bucket(&self, name: String) -> Result<(), Error> {
+        //let bucket = self.bucket(name);
+        //bucket.
         Ok(())
     }
 
@@ -74,33 +66,22 @@ impl S3Client {
 
     pub fn get_object(&self, bucket_name: String, name: String) -> Result<Vec<u8>, Error> {
         log::debug!("S3Client.get_object({}, {})", bucket_name.clone(), name.clone());
-        let client = Client::new();
-        let bucket = Bucket::new(self.config.endpoint.clone(), self.config.path_style, bucket_name, self.config.region.clone()).unwrap();
-        let mut action = GetObject::new(&bucket, Some(&self.config.credentials), &name);
-        action
-            .query_mut()
-            .insert("response-cache-control", "no-cache, no-store");
-        let signed_url = action.sign(Duration::from_secs(30)); // 30 secs
-        let response_res = client.get(signed_url).send();
-        log::trace!("S3Client.get_object: response handling");
+        let bucket = self.bucket(bucket_name);
+        let object_res = bucket.get_object_blocking(name);
 
-        if response_res.is_err() {
+        if object_res.is_err() {
+            log::error!("S3 Error: {}", object_res.err().unwrap());
             return Err(Error::new(ErrorKind::Other, "S3 req failed"));
         }
 
-        let mut response = response_res.unwrap();
-        let status = response.status();
-        if status == StatusCode::NOT_FOUND {
+        let (data, status) = object_res.unwrap();
+        if status == 404 {
             return Err(Error::new(ErrorKind::NotFound, "Object Not Found"));
         }
-        else if status.as_u16() != 200 {
+        else if status != 200 {
+            let body = String::from_utf8_lossy(&data);
+            log::error!("HTTP({}): {}", status, body);
             return Err(Error::new(ErrorKind::Other, format!("S3 req failed: HTTP Status {}", status)));
-        }
-
-        // let mut response = response_mayerr.unwrap();
-        let mut data = Vec::new();
-        if response.read_to_end(&mut data).is_err() {
-            return Err(Error::new(ErrorKind::Other, "S3 req failed: unable to read"));
         }
 
         Ok(data)
@@ -113,35 +94,27 @@ impl S3Client {
 
     pub fn get_object_meta(&self, bucket_name: String, name: String) -> Result<S3ObjectMeta, Error> {
         log::debug!("S3Client.get_object_meta({}, {})", bucket_name.clone(), name.clone());
-        let client = Client::new();
-        let bucket = Bucket::new(self.config.endpoint.clone(), self.config.path_style, bucket_name.clone(), self.config.region.clone()).unwrap();
-        let mut action = HeadObject::new(&bucket, Some(&self.config.credentials), &name);
-        action
-            .query_mut()
-            .insert("response-cache-control", "no-cache, no-store");
-        let signed_url = action.sign(Duration::from_secs(300));
-        let response_res = client.get(signed_url).send();
-        log::trace!("S3Client.get_object: response handling");
+        let bucket = self.bucket(bucket_name.clone());
+        let object_res = bucket.head_object_blocking(name.clone());
 
-        if response_res.is_err() {
+        if object_res.is_err() {
+            log::error!("S3 Error: {}", object_res.err().unwrap());
             return Err(Error::new(ErrorKind::Other, "S3 req failed"));
         }
 
-        let mut response = response_res.unwrap();
-        let status = response.status();
-        if status == StatusCode::NOT_FOUND {
+        let (data, status) = object_res.unwrap();
+        if status == 404 {
             log::debug!("S3Client.get_object_meta: NotFound");
             return Err(Error::new(ErrorKind::NotFound, "Object Not Found"));
         }
-        else if status.as_u16() != 200 {
+        else if status != 200 {
             return Err(Error::new(ErrorKind::Other, format!("S3 req failed: HTTP Status {}", status)));
         }
 
-        let headers = response.headers();
         let object_meta = S3ObjectMeta {
             bucket: bucket_name.clone(),
             name: name.clone(),
-            size: headers.get("Content-Length").unwrap().to_str().unwrap().parse().unwrap(),
+            size: data.content_length.unwrap_or(0) as u64,
         };
 
         Ok(object_meta)
@@ -168,6 +141,7 @@ impl S3Backend {
         let parsed_url = Url::parse(&url)
             .expect("Failed to parse config (URL)");
 
+        let password = parsed_url.password().unwrap();
         S3Backend {
             url: url.clone(),
             client: S3Client::new(S3Config {
@@ -177,9 +151,10 @@ impl S3Backend {
                     parsed_url.scheme(),
                     parsed_url.host_str().unwrap(),
                     parsed_url.port_or_known_default().unwrap().to_string(),
-                    ).parse().unwrap(),
-                credentials: Credentials::new(parsed_url.username(), parsed_url.password().unwrap()),
-                path_style: UrlStyle::Path, // UrlStyle::VirtualHost, // TODO: Derive from URL
+                    ).to_string(),
+                access_key: parsed_url.username().clone().to_string(),
+                secret_key: password.clone().to_string(),
+                path_style: true,
             }),
             bucket: parsed_url.path_segments().unwrap().next().unwrap().to_string(),
         }
@@ -192,7 +167,14 @@ impl SimpleObjectStorage for S3Backend {
     }
 
     fn exists(&self, object_name: String) -> Result<bool, Error> {
-        let object_meta = self.client.get_object_meta(self.bucket.clone(), object_name.clone())?;
+        let object_meta = self.client.get_object_meta(self.bucket.clone(), object_name.clone());
+        if object_meta.is_err() {
+            let err = object_meta.err().unwrap();
+            if err.kind() == ErrorKind::NotFound {
+                return Ok(false);
+            }
+            return Err(err);
+        }
         Ok(true)
     }
 
