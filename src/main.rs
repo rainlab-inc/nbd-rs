@@ -280,20 +280,46 @@ impl<'a> NBDServer {
                 let session = self.session.as_ref().unwrap();
                 log::trace!("STRUCTURED REPLY: {}", structured_reply);
                 let driver = session.driver.as_ref().unwrap();
-                let buffer = driver.read(offset, datalen as usize);
-                if structured_reply == true {
-                    NBDServer::structured_reply(
-                        clone_stream!(socket),
-                        proto::NBD_REPLY_FLAG_DONE,
-                        proto::NBD_REPLY_TYPE_OFFSET_DATA,
-                        handle,
-                        8 + datalen
-                    );
-                    util::write_u64(offset, clone_stream!(socket));
+                let buffer_res = driver.read(offset, datalen as usize);
+                if buffer_res.is_err() {
+                    // handle error
+                    let err = buffer_res.err().unwrap().to_string();
+                    log::warn!("NBD_CMD_READ failed: {}", err.clone());
+                    let err_msg = err.as_bytes();
+                    if structured_reply == true {
+                        NBDServer::structured_reply(
+                            clone_stream!(socket),
+                            proto::NBD_REPLY_FLAG_DONE,
+                            proto::NBD_REPLY_TYPE_ERROR,
+                            handle,
+                            6 + err_msg.len() as u32
+                        );
+                        util::write_u32(proto::NBD_REP_ERR_UNKNOWN, clone_stream!(socket));
+                        util::write_u16(err_msg.len() as u16, clone_stream!(socket));
+                        write!(err_msg, socket);
+                    } else {
+                        NBDServer::simple_reply(
+                            clone_stream!(socket),
+                            proto::NBD_REP_ERR_UNKNOWN,
+                            handle
+                        );
+                    }
                 } else {
-                    NBDServer::simple_reply(clone_stream!(socket), 0_u32, handle);
+                    log::debug!("NBD_CMD_READ ok!");
+                    if structured_reply == true {
+                        NBDServer::structured_reply(
+                            clone_stream!(socket),
+                            proto::NBD_REPLY_FLAG_DONE,
+                            proto::NBD_REPLY_TYPE_OFFSET_DATA,
+                            handle,
+                            8 + datalen
+                        );
+                        util::write_u64(offset, clone_stream!(socket));
+                    } else {
+                        NBDServer::simple_reply(clone_stream!(socket), 0_u32, handle);
+                    }
+                    socket.write(&buffer_res.unwrap()).expect("Couldn't send data.");
                 }
-                socket.write(&buffer.unwrap()).expect("Couldn't send data.");
             }
             proto::NBD_CMD_WRITE => { // 1
                 log::debug!("NBD_CMD_WRITE");
@@ -305,24 +331,48 @@ impl<'a> NBDServer {
                         let mut driver = session.driver.take().unwrap();
                         let driver_name = driver.get_name();
 
-                        // TODO: Handle errors
-                        driver.write(offset, datalen as usize, &data)
-                            .unwrap(); // panics on error
-
-                        if structured_reply == true {
-                            NBDServer::structured_reply(
-                                clone_stream!(socket),
-                                proto::NBD_REPLY_FLAG_DONE,
-                                proto::NBD_REPLY_TYPE_NONE,
-                                handle,
-                                0
-                            );
+                        let write_res = driver.write(offset, datalen as usize, &data);
+                        if write_res.is_err() {
+                            // handle error
+                            let err = write_res.err().unwrap().to_string();
+                            log::warn!("NBD_CMD_WRITE failed: {}", err.clone());
+                            let err_msg = err.as_bytes();
+                            if structured_reply == true {
+                                NBDServer::structured_reply(
+                                    clone_stream!(socket),
+                                    proto::NBD_REPLY_FLAG_DONE,
+                                    proto::NBD_REPLY_TYPE_ERROR,
+                                    handle,
+                                    6 + err_msg.len() as u32
+                                );
+                                util::write_u32(proto::NBD_REP_ERR_UNKNOWN, clone_stream!(socket));
+                                util::write_u16(err_msg.len() as u16, clone_stream!(socket));
+                                write!(err_msg, socket);
+                            } else {
+                                NBDServer::simple_reply(
+                                    clone_stream!(socket),
+                                    proto::NBD_REP_ERR_UNKNOWN,
+                                    handle
+                                );
+                            }
                         } else {
-                            NBDServer::simple_reply(
-                                clone_stream!(socket),
-                                0_u32,
-                                handle
-                            );
+                            log::debug!("NBD_CMD_WRITE ok!");
+
+                            if structured_reply == true {
+                                NBDServer::structured_reply(
+                                    clone_stream!(socket),
+                                    proto::NBD_REPLY_FLAG_DONE,
+                                    proto::NBD_REPLY_TYPE_NONE,
+                                    handle,
+                                    0
+                                );
+                            } else {
+                                NBDServer::simple_reply(
+                                    clone_stream!(socket),
+                                    0_u32,
+                                    handle
+                                );
+                            }
                         }
                         self.session = Some(NBDSession {
                             socket: clone_stream!(socket),
