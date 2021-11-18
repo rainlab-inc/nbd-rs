@@ -118,8 +118,7 @@ impl ShardedBlock {
     }
 
     pub fn shard_name(&self, index: usize) -> String {
-        // format!("{}/block-{}", self.name.clone(), index).to_string()
-        format!("{}/size", self.name.clone())
+        format!("{}/block-{}", self.name.clone(), index).to_string()
     }
 }
 
