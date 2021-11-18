@@ -141,8 +141,34 @@ impl S3Client {
         Ok(())
     }
 
-    pub fn put_object(&self, bucket: String, name: String, data: &[u8]) -> Result<S3ObjectMeta, Error> {
-        Err(Error::new(ErrorKind::Unsupported, "Not yet implemented: S3Client::put_object"))
+    pub fn put_object(&self, bucket_name: String, name: String, data: &[u8]) -> Result<S3ObjectMeta, Error> {
+        log::debug!("S3Client.put_object({}, {})", bucket_name.clone(), name.clone());
+        let bucket = self.bucket(bucket_name.clone());
+        let size = data.len();
+        let object_res = bucket.put_object_blocking(name.clone(), data);
+
+        if object_res.is_err() {
+            log::error!("S3 Error: {}", object_res.err().unwrap());
+            return Err(Error::new(ErrorKind::Other, "S3 req failed"));
+        }
+
+        let (data, status) = object_res.unwrap();
+        if status == 404 {
+            return Err(Error::new(ErrorKind::NotFound, "Bucket Not Found"));
+        }
+        else if status != 200 && status != 201 {
+            let body = String::from_utf8_lossy(&data);
+            log::error!("HTTP({}): {}", status, body);
+            return Err(Error::new(ErrorKind::Other, format!("S3 req failed: HTTP Status {}", status)));
+        }
+
+        let object_meta = S3ObjectMeta {
+            bucket: bucket_name.clone(),
+            name: name.clone(),
+            size: size as u64,
+        };
+
+        Ok(object_meta)
     }
 
 }
