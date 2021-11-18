@@ -84,33 +84,56 @@ impl<'a> SimpleObjectStorage for FileBackend {
     }
 
     fn read(&self, object_name: String) -> Result<Vec<u8>, Error> {
-        let path = self.obj_path(object_name.clone());
-        let mut buffer: Vec<u8> = Vec::new();
-        if !self.exists(object_name.clone())? {
-            return Err(Error::new(ErrorKind::NotFound, "Object Not Found"))
+        let open_files = self.open_files.borrow();
+        match open_files.get_key_value(&object_name) {
+            Some(mapped_file) => {
+                let mut buffer: Vec<u8> = Vec::new();
+                let mapped_file_ptr = mapped_file.1.borrow();
+                let sub = mapped_file_ptr
+                    .map(0, mapped_file_ptr.size() as usize)
+                    .unwrap();
+                buffer.copy_from_slice(sub.as_ref());
+                return Ok(buffer)
+            },
+            None => {
+                let path = self.obj_path(object_name.clone());
+                let mut buffer: Vec<u8> = Vec::new();
+                if !self.exists(object_name.clone())? {
+                    return Err(Error::new(ErrorKind::NotFound, "Object Not Found"))
+                }
+                let mut file = OpenOptions::new()
+                    .read(true)
+                    .open(path)
+                    .unwrap();
+                file
+                    .read_to_end(&mut buffer)
+                    .expect(&format!("couldn't read object: {:?}", object_name.clone()));
+                return Ok(buffer)
+            }
         }
-
-        let mut file = OpenOptions::new()
-            .read(true)
-            .open(path)
-            .unwrap();
-
-        file
-            .read_to_end(&mut buffer)
-            .expect(&format!("couldn't read object: {:?}", object_name.clone()));
-
-        Ok(buffer)
     }
 
     fn write(&self, object_name: String, data: &[u8]) -> Result<(), Error> {
-        let path = self.obj_path(object_name.clone());
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .open(path)
-            .unwrap();
-
-        file.write_all(data)?;
+        let open_files = self.open_files.borrow();
+        match open_files.get_key_value(&object_name) {
+            Some(mapped_file) => {
+                let mut mapped_file_ptr = mapped_file.1.borrow_mut();
+                let size: usize = mapped_file_ptr.size() as usize;
+                let mut mut_pointer = mapped_file_ptr
+                    .map_mut(0, size)
+                    .unwrap();
+                mut_pointer.copy_from_slice(&data);
+            },
+            None => {
+                let path = self.obj_path(object_name.clone());
+                let mut file = OpenOptions::new()
+                    .write(true)
+                    .create(true)
+                    .open(path)
+                    .unwrap();
+                file.write_all(data)?;
+            }
+        }
         // TODO: Consider file.sync_all()? or file.sync_data()?;
         //       or at least to it async ? instead of dropping the file
         Ok(())
@@ -185,7 +208,7 @@ impl<'a> PartialAccessObjectStorage for FileBackend {
             },
             None => {
                 let path = self.obj_path(object_name.clone());
-                let mut buffer = vec![0_u8; length];
+                let mut buffer: Vec<u8> = Vec::new();
                 if !self.exists(object_name.clone())? {
                     return Err(Error::new(ErrorKind::NotFound, "Object Not Found"))
                 }
@@ -196,32 +219,35 @@ impl<'a> PartialAccessObjectStorage for FileBackend {
                     .unwrap();
 
                 file.seek(SeekFrom::Start(offset))?;
-                file.read_exact(&mut buffer)
-                    .expect(&format!("couldn't read object: {:?}", object_name.clone()));
+                let mut handle = file.take(length as u64);
+                handle.read_to_end(&mut buffer);
                 return Ok(buffer)
             }
         }
     }
 
     fn partial_write(&self, object_name: String, offset: u64, length: usize, data: &[u8]) -> Result<usize, Error> {
-        // TODO: Use MMAP if file is already open and mmap'ed.
-        // self.print();
-        // let file = self.get_file(object_name.clone()).unwrap(); // get or open file
-        // self.print();
-        // let mut mut_pointer = file
-        //     .into_mut_mapping(offset, length)
-        //     .map_err(|(e, _)| e)
-        //     .unwrap();
-        // mut_pointer.copy_from_slice(&data);
-        let path = self.obj_path(object_name.clone());
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .open(path)
-            .unwrap();
-
-        file.seek(SeekFrom::Start(offset))?;
-        file.write_all(data)?;
+        let open_files = self.open_files.borrow();
+        match open_files.get_key_value(&object_name) {
+            Some(mapped_file) => {
+                let mut mapped_file_ptr = mapped_file.1.borrow_mut();
+                let size = mapped_file_ptr.size() as usize;
+                let mut mut_pointer = mapped_file_ptr
+                    .map_mut(offset, length)
+                    .unwrap();
+                mut_pointer.copy_from_slice(&data);
+            },
+            None => {
+                let path = self.obj_path(object_name.clone());
+                let mut file = OpenOptions::new()
+                    .write(true)
+                    .create(true)
+                    .open(path)
+                    .unwrap();
+                file.seek(SeekFrom::Start(offset))?;
+                file.write_all(data)?;
+            }
+        }
         // TODO: Consider file.sync_all()? or file.sync_data()?;
         //       or at least to it async ? instead of dropping the file
         Ok(length)
