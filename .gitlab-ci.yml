@@ -1,8 +1,26 @@
 stages:
+  - dep
   - build
+  - test
+  - release
+
+dep:
+  image: rust:1-alpine3.14
+  stage: dep
+  script:
+    - cargo install --path .
+  cache:
+    - &cache_settings
+      paths:
+      - target/debug
+      # - target/release
+      key: &cache_key
+        files:
+        - Cargo.lock
+      policy: pull-push
 
 build:latest:
-  image: rust:1.47
+  image: rust:1-alpine3.14
   stage: build
   tags:
     - docker
@@ -10,14 +28,17 @@ build:latest:
     - cargo build
   only:
     - master
+  cache:
+    - <<: *cache_settings
+      policy: pull
   artifacts:
     paths:
-    - target/debug/nbd-proxy-rs
-    expire_in: 1 week
+    - target/debug/nbd-rs
+    expire_in: 1 month
 
 build:release:
-  image: rust:1.47
-  stage: build
+  image: rust:1-alpine3.14
+  stage: release
   tags:
     - docker
   script:
@@ -26,11 +47,11 @@ build:release:
     - tags
   artifacts:
     paths:
-    - target/release/nbd-proxy-rs
-    expire_in: 1 week
+    - target/release/nbd-rs
+    expire_in: never
 
 build:dev:
-  image: rust:1.47
+  image: rust:1-alpine3.14
   stage: build
   tags:
     - docker
@@ -38,3 +59,23 @@ build:dev:
     - cargo build
   except:
     - master
+  cache:
+    - <<: *cache_settings
+      policy: pull
+  artifacts:
+    paths:
+    - target/debug/nbd-rs
+    expire_in: 2 days
+
+test:unit:
+  image: rust:1-alpine3.14
+  stage: test
+  before_script:
+    - fallocate -l 64M alpine # dummy image file
+  script:
+    - cargo test -- --test-threads 1
+  after_script:
+    - rm alpine
+  cache:
+    - <<: *cache_settings
+      policy: pull

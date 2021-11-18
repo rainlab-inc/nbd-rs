@@ -116,8 +116,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "nbd-proxy-rs"
-version = "0.1.0"
+name = "nbd-rs"
+version = "0.0.3"
 dependencies = [
  "clap",
  "libc",
