@@ -1,19 +1,20 @@
-// use std::io;
-// use std::io::prelude::*;
+#![allow(unused_variables)]
+
 use std::{
     io::{Read, Write},
     net::{SocketAddr, TcpListener, TcpStream},
-    time::{SystemTime, UNIX_EPOCH}
+    time::{SystemTime, UNIX_EPOCH},
+    collections::{HashMap},
 };
 
-use clap::{App, Arg, ArgGroup, crate_authors, crate_version};
+use clap::{App, Arg, crate_authors, crate_version};
 
 use crate::storage::StorageBackend;
-//use std::collections::HashMap;
 
 // https://github.com/NetworkBlockDevice/nbd/blob/master/nbd-server.c#L2362-L2468
 // NBD_OPT_GO | NBD_OPT_INFO: https://github.com/NetworkBlockDevice/nbd/blob/master/nbd-server.c#L2276-L2353
 
+mod object;
 mod storage;
 mod proto;
 mod util;
@@ -40,19 +41,18 @@ struct NBDOption {
 }
 */
 
-struct NBDExport {
-    export_name: String,
+#[derive(Hash)]
+struct NBDExportConfig {
     driver_type: String,
     conn_str: String
 }
 
-impl NBDExport {
-    fn new(export_name: String, driver_type: String, conn_str: String) -> NBDExport {
-        if !["mmap", "sharded"].contains(&driver_type.as_str()) {
-            panic!(format!("Driver must be one of the values `mmap` or `sharded`. Found '{}'", driver_type));
+impl NBDExportConfig {
+    fn new(driver_type: String, conn_str: String) -> NBDExportConfig {
+        if !["raw", "sharded"].contains(&driver_type.as_str()) {
+            panic!("Driver must be one of the values `raw` or `sharded`. Found '{}'", driver_type);
         }
-        NBDExport {
-            export_name: export_name,
+        NBDExportConfig {
             driver_type: driver_type,
             conn_str: conn_str
         }
@@ -81,7 +81,8 @@ impl<'a> NBDSession {
         structured_reply: bool,
         driver_name: String,
         image_name: String,
-        metadata_context_id: u32
+        metadata_context_id: u32,
+        storage_config: String
     ) -> NBDSession {
         let mut session = NBDSession {
             socket: socket,
@@ -92,7 +93,7 @@ impl<'a> NBDSession {
             driver_name: driver_name.clone()
         };
         if driver_name.as_str() != "" {
-            let driver = NBDSession::init_storage_driver(image_name, driver_name);
+            let driver = NBDSession::init_storage_driver(image_name, driver_name, storage_config);
             session.driver = driver;
         }
         session
@@ -112,14 +113,14 @@ impl<'a> NBDSession {
         }
     }
 
-    fn init_storage_driver(image_name: String, driver_name: String) -> Option<Box<dyn StorageBackend>> {
+    fn init_storage_driver(image_name: String, driver_name: String, storage_config: String) -> Option<Box<dyn StorageBackend>> {
         match driver_name.as_str() {
-            "mmap" => {
-                Some(Box::new(storage::MmapBackend::new(image_name.clone())))
+            "raw" => {
+                Some(Box::new(storage::RawBlock::new(image_name.clone(), storage_config)))
             },
             "sharded" => {
-                Some(Box::new(storage::ShardedFile::new(image_name.to_lowercase().clone(), String::from("test"))))
-            }
+                Some(Box::new(storage::ShardedBlock::new(image_name.to_lowercase().clone(), storage_config)))
+            },
             _ => {
                 println!("Couldn't find storage driver: <{}>", driver_name);
                 None
@@ -134,11 +135,11 @@ struct NBDServer {
     session: Option<NBDSession>,
     host: String,
     port: u16,
-    exports: Vec<NBDExport>
+    exports: HashMap<String, NBDExportConfig>
 }
 
 impl<'a> NBDServer {
-    fn new(host: String, port: u16, exports: Vec<NBDExport>) -> NBDServer {
+    fn new(host: String, port: u16, exports: HashMap<String, NBDExportConfig>) -> NBDServer {
         let addr: SocketAddr = format!("{}:{}", host, port).parse().unwrap();
         let socket_addr = addr.clone();
 
@@ -177,7 +178,15 @@ impl<'a> NBDServer {
     fn handle_connection(&mut self, socket: TcpStream /*, addr: SocketAddr*/) {
         // TODO: Process socket
         let flags = self.handshake(clone_stream!(socket));
-        let session = NBDSession::new(socket, flags, false, String::from(""), String::from(""), 0);
+        let session = NBDSession::new(
+            socket,
+            flags,
+            false,
+            String::from(""),
+            String::from(""),
+            0,
+            String::from("")
+        );
         self.session = Some(session);
         println!("Connection established!");
     }
@@ -278,7 +287,7 @@ impl<'a> NBDServer {
                 } else {
                     NBDServer::simple_reply(clone_stream!(socket), 0_u32, handle);
                 }
-                socket.write(&buffer).expect("Couldn't send data.");
+                socket.write(&buffer.unwrap()).expect("Couldn't send data.");
             }
             proto::NBD_CMD_WRITE => { // 1
                 println!("NBD_CMD_WRITE");
@@ -289,7 +298,11 @@ impl<'a> NBDServer {
                         let mut session = self.session.take().unwrap();
                         let mut driver = session.driver.take().unwrap();
                         let driver_name = driver.get_name();
-                        driver.write(offset, datalen as usize, &data);
+
+                        // TODO: Handle errors
+                        driver.write(offset, datalen as usize, &data)
+                            .unwrap(); // panics on error
+
                         if structured_reply == true {
                             NBDServer::structured_reply(
                                 clone_stream!(socket),
@@ -342,7 +355,7 @@ impl<'a> NBDServer {
                 // Terminate TLS
                 println!("NBD_CMD_DISC");
                 let mut session = self.session.take().unwrap();
-                let mut driver = session.driver.take();
+                let driver = session.driver.take();
                 if driver.is_some() {
                     driver.unwrap().close();
                 }
@@ -352,7 +365,8 @@ impl<'a> NBDServer {
                     session.structured_reply,
                     String::from(""),
                     String::from(""),
-                    session.metadata_context_id
+                    session.metadata_context_id,
+                    String::from("")
                 ));
             }
             proto::NBD_CMD_FLUSH => { // 3
@@ -496,6 +510,7 @@ impl<'a> NBDServer {
             proto::NBD_REP_INFO,
             12
         );
+        let selected_export = self.exports.get_key_value(&name.to_lowercase()).unwrap();
         let session = self.session.as_ref().unwrap();
         let mut volume_size: u64 = 256 * 1024 * 1024;
         if session.driver.is_none() {
@@ -504,9 +519,10 @@ impl<'a> NBDServer {
                 clone_stream!(socket),
                 session.flags,
                 session.structured_reply,
-                self.get_driver_type_from_export_name(name.clone()),
-                name.clone().to_lowercase(),
-                session.metadata_context_id
+                selected_export.1.driver_type.clone(),
+                String::from(selected_export.0),
+                session.metadata_context_id,
+                selected_export.1.conn_str.clone()
             ));
             volume_size = self.session.as_ref().unwrap().driver.as_ref().unwrap().get_volume_size();
         } else {
@@ -646,15 +662,16 @@ impl<'a> NBDServer {
             0
         );
         if (opt == proto::NBD_OPT_GO) & (self.session.as_ref().unwrap().driver.is_none()) {
-            let driver_type = self.get_driver_type_from_export_name(name.clone());
-            let mut session = self.session.take().unwrap();
+            let selected_export = self.exports.get_key_value(&name.to_lowercase()).unwrap();
+            let session = self.session.take().unwrap();
             self.session = Some(NBDSession::new(
                 clone_stream!(socket),
                 session.flags,
                 session.structured_reply,
-                driver_type,
-                name.clone(),
-                session.metadata_context_id
+                selected_export.1.driver_type.clone(),
+                String::from(selected_export.0),
+                session.metadata_context_id,
+                selected_export.1.conn_str.clone()
             ));
         }
     }
@@ -698,8 +715,9 @@ impl<'a> NBDServer {
         );
     }
 
+    /*
     fn get_driver_type_from_export_name(&self, export_name: String) -> String {
-        let exports: Vec<&NBDExport> = self.exports
+        let exports: Vec<&NBDExportConfig> = self.exports
             .iter()
             .filter(|export| export.export_name.to_lowercase() == export_name.to_lowercase())
             .collect();
@@ -709,6 +727,7 @@ impl<'a> NBDServer {
         }
         export.unwrap().driver_type.clone()
     }
+    */
 }
 
 fn main() {
@@ -727,7 +746,7 @@ fn main() {
                 .number_of_values(3)
                 .long_help(
 "USAGE:
-[-e | --export EXPORT_NAME; DRIVER (mmap, sharded); CONN_STR]...
+[-e | --export EXPORT_NAME; DRIVER (raw, sharded); CONN_STR]...
 Sets the export(s) via `export` argument. Must be used at least once."),
         )
         .get_matches();
@@ -735,13 +754,14 @@ Sets the export(s) via `export` argument. Must be used at least once."),
         .unwrap()
         .map(|val| val.to_string())
         .collect();
-    let mut exports: Vec<NBDExport> = Vec::new();
+    let mut exports = HashMap::<String, NBDExportConfig>::new();
     for i in 0..(matches.occurrences_of("export") as usize) {
-        exports.push(NBDExport::new(
-            vals[i * 3].clone(),
-            vals[i * 3 + 1].clone(),
-            vals[i * 3 + 2].clone()
-        ));
+        exports.insert(vals[i * 3].clone(),
+            NBDExportConfig::new(
+                vals[i * 3 + 1].clone(),
+                vals[i * 3 + 2].clone()
+            )
+        );
     }
     let mut server = NBDServer::new("0.0.0.0".to_string(), 10809, exports);
     server.listen();
