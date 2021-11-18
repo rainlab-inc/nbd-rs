@@ -7,6 +7,8 @@ use crate::{
     object::{ObjectStorage, storage_with_config},
 };
 
+use log;
+
 pub trait StorageBackend {
     fn init(&mut self);
     fn get_name(&self) -> String;
@@ -144,9 +146,9 @@ impl StorageBackend for ShardedBlock {
             self.shard_index(offset + length as u64)
         };
 
-        println!("(Read) Start: {}, End: {}", start, end);
+        log::debug!("storage::read(start: {}, end: {})", start, end);
         for i in start..=end {
-            println!("(Read) Iteration: {}", i);
+            log::trace!("storage::read(iteration: {})", i);
             let shard_name = self.shard_name(i);
 
             if self.object_storage.exists(shard_name.clone())? {
@@ -191,9 +193,9 @@ impl StorageBackend for ShardedBlock {
         } else {
             self.shard_index(offset + length as u64)
         };
-        println!("(Write) Start: {}, End: {}", start, end);
+        log::trace!("storage::write(start: {}, end: {})", start, end);
         for i in start..=end {
-            println!("(Write) Iteration: {}", i);
+            log::trace!("storage::write(iteration: {})", i);
             let shard_name = self.shard_name(i);
 
             let range_start = (offset % self.shard_size + (i as u64) * self.shard_size) as usize;
@@ -240,9 +242,9 @@ impl StorageBackend for ShardedBlock {
         } else {
             self.shard_index(offset + length as u64)
         };
-        println!("(Flush) Start: {}, End: {}", start, end);
+        log::debug!("storage::flush(start: {}, end: {})", start, end);
         for i in start..=end {
-            println!("(Flush) Iteration: {}", i);
+            log::trace!("storage::flush(iteration: {})", i);
             let shard_name = self.shard_name(i);
             self.object_storage.persist_object(shard_name.clone())?;
         }
@@ -251,6 +253,6 @@ impl StorageBackend for ShardedBlock {
     }
 
     fn close(&mut self) {
-        println!("Closed");
+        log::debug!("storage::close");
     }
 }

@@ -37,7 +37,7 @@ struct S3ObjectMeta {
 
 impl S3Client {
     pub fn new(config: S3Config) -> S3Client {
-        println!("S3Client.config: {:?}", &config);
+        log::debug!("S3Client.config: {:?}", &config);
         S3Client {
             config: config
         }

@@ -9,7 +9,7 @@ pub fn storage_with_config(config: String) -> Result<Box<dyn ObjectStorage>, Err
     let issue_list_url = Url::parse(&config)
         .expect("Failed to parse config (URL)");
 
-    println!("Storage: {:?}", &issue_list_url);
+    log::info!("storage: {:?}", &issue_list_url);
 
     return match issue_list_url.scheme() {
         "file" => {
