@@ -18,7 +18,6 @@ use s3::region::Region;
 
 #[derive(Debug)]
 struct S3Config {
-    name: String,
     region: String,
     endpoint: String,
     access_key: String,
@@ -145,8 +144,7 @@ impl S3Backend {
         S3Backend {
             url: url.clone(),
             client: S3Client::new(S3Config {
-                name: "nbd-rs".to_string(),
-                region: "eu-west-1".to_string(), // TODO: Derive from URL
+                region: "minio".to_string(), // TODO: Derive from URL
                 endpoint: format!("{}://{}:{}",
                     parsed_url.scheme(),
                     parsed_url.host_str().unwrap(),
@@ -154,7 +152,7 @@ impl S3Backend {
                     ).to_string(),
                 access_key: parsed_url.username().clone().to_string(),
                 secret_key: password.clone().to_string(),
-                path_style: true,
+                path_style: true, // TODO: Derive from URL
             }),
             bucket: parsed_url.path_segments().unwrap().next().unwrap().to_string(),
         }
