@@ -119,8 +119,26 @@ impl S3Client {
         Ok(object_meta)
     }
 
-    pub fn delete_object(&self, bucket: String, name: String) -> Result<(), Error> {
-        Err(Error::new(ErrorKind::Unsupported, "Not yet implemented: S3Client::delete_object"))
+    pub fn delete_object(&self, bucket_name: String, name: String) -> Result<(), Error> {
+        log::debug!("S3Client.delete_object({}, {})", bucket_name.clone(), name.clone());
+        let bucket = self.bucket(bucket_name.clone());
+        let object_res = bucket.delete_object_blocking(name.clone());
+
+        if object_res.is_err() {
+            log::error!("S3 Error: {}", object_res.err().unwrap());
+            return Err(Error::new(ErrorKind::Other, "S3 req failed"));
+        }
+
+        let (_, status) = object_res.unwrap();
+        if status == 404 {
+            log::debug!("S3Client.delete_object: NotFound");
+            return Err(Error::new(ErrorKind::NotFound, "Object Not Found"));
+        }
+        else if status != 204 {
+            return Err(Error::new(ErrorKind::Other, format!("S3 req failed: HTTP Status {}", status)));
+        }
+
+        Ok(())
     }
 
     pub fn put_object(&self, bucket: String, name: String, data: &[u8]) -> Result<S3ObjectMeta, Error> {
