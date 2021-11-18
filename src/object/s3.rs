@@ -257,15 +257,33 @@ impl SimpleObjectStorage for S3Backend {
 impl PartialAccessObjectStorage for S3Backend {
 
     fn partial_read(&self, object_name: String, offset: u64, length: usize) -> Result<Vec<u8>, Error> {
-        self.client.get_object_partial(self.bucket.clone(), object_name.clone(), offset, length)
+        // self.client.get_object_partial(self.bucket.clone(), object_name.clone(), offset, length)
+        let old_buffer: Vec<u8> = self.read(object_name.clone())?;
+        let slice: Vec<u8> = old_buffer[(offset as usize)..((offset as usize) + length)].to_vec();
+        Ok(slice)
     }
 
     fn partial_write(&self, object_name: String, offset: u64, length: usize, data: &[u8]) -> Result<usize, Error> {
         // isn't supported by S3 (easily..), so need manual patching of the object, race-prune
-        // TODO: FETCH into Vec<u8>
-        // TODO: PATCH it partially
-        // TODO: PUT BACK
-        Err(Error::new(ErrorKind::Unsupported, "Not yet implemented: S3Backend::partial_write"))
+        // FETCH into Vec<u8>
+        let old_buffer: Vec<u8> = self.read(object_name.clone())?;
+        let mut new_buffer: Vec<u8> = Vec::new();
+
+        if offset > 0 {
+            new_buffer.extend_from_slice(&old_buffer[0..(offset as usize)]);
+        }
+        // PATCH it partially
+        new_buffer.extend_from_slice(data);
+
+        let remaining = old_buffer.len() - (offset as usize) - length;
+        if remaining > 0 {
+            new_buffer.extend_from_slice(&old_buffer[((offset as usize)+length)..((offset as usize)+length+remaining)]);
+        }
+
+        // PUT BACK
+        self.write(object_name, &new_buffer)?;
+
+        Ok(length)
     }
 }
 
