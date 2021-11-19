@@ -187,50 +187,58 @@ impl StorageBackend for ShardedBlock {
     }
 
     fn write(&mut self, offset: u64, length: usize, data: &[u8]) -> Result<usize, Error> {
-        let start = self.shard_index(offset);
-        let end = if 0 == (offset + length as u64) % self.shard_size {
-            self.shard_index(offset + length as u64) - 1
-        } else {
-            self.shard_index(offset + length as u64)
-        };
-        log::trace!("storage::write(start: {}, end: {})", start, end);
-        for i in start..=end {
-            log::trace!("storage::write(iteration: {})", i);
-            let shard_name = self.shard_name(i);
+        // let start = self.shard_index(offset);
+        // let end = if 0 == (offset + length as u64) % self.shard_size {
+        //     self.shard_index(offset + length as u64) - 1
+        // } else {
+        //     self.shard_index(offset + length as u64)
+        // };
+        log::trace!("storage::write(offset: {}, length: {})", offset, length);
+        let mut cur_offset: usize = offset as usize;
+        let mut cur_shard = 0;
+        let mut written: usize = 0;
+        while written < length {
+            cur_shard = self.shard_index(cur_offset as u64);
+            let shard_offset: usize = cur_offset % self.shard_size as usize;
 
-            let range_start = (offset % self.shard_size + (i as u64) * self.shard_size) as usize;
-            let range_end = (offset % self.shard_size + (i as u64 + 1) * self.shard_size) as usize;
+            // until which byte we will write inside this shard
+            let write_target = std::cmp::min((shard_offset + (length - written)), self.shard_size as usize);
+            log::trace!("write_target {} - shard_offset {}", write_target, shard_offset);
+            let write_len: usize = write_target - shard_offset;
 
-            if i == start {
-                let write_len = std::cmp::min((self.shard_size - offset % self.shard_size) as usize, length);
-                if !self.object_storage.exists(shard_name.clone())? {
-                    let zeroes: Vec<u8> = vec![0_u8; self.shard_size as usize - write_len];
-                    let mut buffer: Vec<u8> = Vec::new();
-                    buffer.extend_from_slice(&zeroes);
-                    buffer.extend_from_slice(&data[0..write_len]);
+            log::trace!("storage::write(shard: {}, offset: {}, len: {})", cur_shard, shard_offset, write_len);
+            let shard_name = self.shard_name(cur_shard);
 
-                    self.object_storage.write(shard_name.clone(), &buffer)?;
-                    continue;
-                } else {
-                    self.object_storage.partial_write(shard_name.clone(), offset % self.shard_size, write_len, &data[0..write_len])?;
-                    continue;
-                }
-            } else if i == end {
-                let write_len = ((length as u64 + offset % self.shard_size) % self.shard_size) as usize;
-                if !self.object_storage.exists(shard_name.clone())? {
-                    let zeroes: Vec<u8> = vec![0_u8; self.shard_size as usize - write_len];
-                    let mut buffer: Vec<u8> = Vec::new();
-                    buffer.extend_from_slice(&data[range_start..(range_start + write_len)]);
-                    buffer.extend_from_slice(&zeroes);
-                    self.object_storage.write(shard_name.clone(), &buffer)?;
-                    break;
-                } else {
-                    self.object_storage.partial_write(shard_name.clone(), 0, write_len, &data[range_start..(range_start + write_len)])?;
-                    break;
-                }
+            let slice = &data[written..(written + write_len)];
+
+            // full write
+            if write_len == self.shard_size as usize {
+                self.object_storage.write(shard_name.clone(), slice)?;
+                written += write_len;
             }
 
-            self.object_storage.write(shard_name.clone(), &data[range_start..range_end])?;
+            // new object
+            else if !self.object_storage.exists(shard_name.clone())? {
+                let mut buffer: Vec<u8> = Vec::new();
+                // pad zeroes (head)
+                if shard_offset > 0 {
+                    let head_zeroes: Vec<u8> = vec![0_u8; shard_offset as usize];
+                    buffer.extend_from_slice(&head_zeroes);
+                }
+                buffer.extend_from_slice(slice);
+                // pad zeroes (tail)
+                if write_target < self.shard_size as usize - 1 {
+                    let tail_zeroes: Vec<u8> = vec![0_u8; (self.shard_size as usize - write_len - shard_offset) as usize];
+                    buffer.extend_from_slice(&tail_zeroes);
+                }
+                self.object_storage.write(shard_name.clone(), &buffer)?;
+                written += write_len;
+
+            // existing object, partial write
+            } else {
+                self.object_storage.partial_write(shard_name.clone(), shard_offset as u64, write_len, slice)?;
+            }
+            written += write_len;
         }
         Ok(length)
     }
