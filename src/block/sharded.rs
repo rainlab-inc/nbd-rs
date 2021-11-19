@@ -44,7 +44,7 @@ impl ShardedBlock {
         let object_name = format!("{}/size", self.name.clone());
         let filedata = self.object_storage.read(object_name); // TODO: Errors?
         if filedata.is_err() {
-            return 67108864;
+            return 256 * 1024 * 1024;
         }
         // TODO: Allow file to not exist, create if does not exist
         let mut string = str::from_utf8(&filedata.unwrap()).unwrap().to_string();
