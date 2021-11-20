@@ -8,7 +8,6 @@ use std::{
 };
 
 use crate::{
-    block::{BlockStorage},
     nbd::{proto, NBDSession},
     util,
 };

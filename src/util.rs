@@ -6,6 +6,21 @@
 use std::io::{Read, Write};
 use std::net::TcpStream;
 
+#[repr(u8)]
+#[derive(Copy, Clone, Debug)]
+pub enum Propagation {
+   Guaranteed  = 255, // all layers we know reports completion, including external ones, to the final real disk
+   Complete    = 127, // complete on our end, handed over to any external system if there is.
+   InProgress  = 126, // background, but started
+   Queued      = 125, // will do
+   Unsure      =  32,  // execution attempted, but response from one layer taints response
+   Redundant   =  24,  // skipped, because wasn't necessary / done already
+   Noop        =  16,
+   Ignored     =  15,
+   Unsupported =  14,
+   // Failed      : u8 = 0,   // Instead of this, Result/Err should be used
+}
+
 macro_rules! clone_stream {
     ($stream:expr) => {
         ($stream.try_clone().expect("Err on cloning stream"))

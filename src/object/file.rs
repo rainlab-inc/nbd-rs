@@ -8,6 +8,7 @@ use std::{
 };
 
 use mmap_safe::{MappedFile};
+extern crate libc;
 
 use crate::object::{
     ObjectStorage,
@@ -16,8 +17,7 @@ use crate::object::{
     StreamingObjectStorage,
     StreamingPartialAccessObjectStorage,
 };
-
-extern crate libc;
+use crate::util::Propagation;
 
 pub struct FileBackend {
     folder_path: String,
@@ -109,7 +109,7 @@ impl SimpleObjectStorage for FileBackend {
         }
     }
 
-    fn write(&self, object_name: String, data: &[u8]) -> Result<(), Error> {
+    fn write(&self, object_name: String, data: &[u8]) -> Result<Propagation, Error> {
         let open_files = self.open_files.borrow();
         match open_files.get_key_value(&object_name) {
             Some(mapped_file) => {
@@ -132,10 +132,10 @@ impl SimpleObjectStorage for FileBackend {
         }
         // TODO: Consider file.sync_all()? or file.sync_data()?;
         //       or at least to it async ? instead of dropping the file
-        Ok(())
+        Ok(Propagation::Complete)
     }
 
-    fn delete(&self, object_name: String) -> Result<(), Error> {
+    fn delete(&self, object_name: String) -> Result<Propagation, Error> {
         Err(Error::new(ErrorKind::Unsupported, "Not yet implemented"))
     }
 
@@ -174,7 +174,7 @@ impl SimpleObjectStorage for FileBackend {
         //Ok(drop(file)) // !?
     }
 
-    fn persist_object(&self, object_name: String) -> Result<(), Error> {
+    fn persist_object(&self, object_name: String) -> Result<Propagation, Error> {
         unsafe{ libc::sync(); }
         // This is only relevant for already open files.
 
@@ -185,7 +185,7 @@ impl SimpleObjectStorage for FileBackend {
         //     .map_err(|(e, _)| e)
         //     .unwrap();
         // mut_pointer.flush();
-        Ok(())
+        Ok(Propagation::Guaranteed)
     }
 }
 
@@ -222,7 +222,7 @@ impl PartialAccessObjectStorage for FileBackend {
         }
     }
 
-    fn partial_write(&self, object_name: String, offset: u64, length: usize, data: &[u8]) -> Result<usize, Error> {
+    fn partial_write(&self, object_name: String, offset: u64, length: usize, data: &[u8]) -> Result<Propagation, Error> {
         let open_files = self.open_files.borrow();
         match open_files.get_key_value(&object_name) {
             Some(mapped_file) => {
@@ -246,7 +246,7 @@ impl PartialAccessObjectStorage for FileBackend {
         }
         // TODO: Consider file.sync_all()? or file.sync_data()?;
         //       or at least to it async ? instead of dropping the file
-        Ok(length)
+        Ok(Propagation::Complete)
     }
 }
 

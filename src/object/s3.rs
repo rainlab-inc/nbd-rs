@@ -2,7 +2,11 @@ use std::{
     io::{Error, ErrorKind},
 };
 use url::{Url};
+
 use log;
+use s3::bucket::Bucket;
+use s3::creds::Credentials;
+use s3::region::Region;
 
 use crate::object::{
     ObjectStorage,
@@ -11,10 +15,7 @@ use crate::object::{
     StreamingObjectStorage,
     StreamingPartialAccessObjectStorage,
 };
-
-use s3::bucket::Bucket;
-use s3::creds::Credentials;
-use s3::region::Region;
+use crate::util::Propagation;
 
 #[derive(Debug)]
 struct S3Config {
@@ -224,13 +225,14 @@ impl SimpleObjectStorage for S3Backend {
         self.client.get_object(self.bucket.clone(), object_name.clone())
     }
 
-    fn write(&self, object_name: String, data: &[u8]) -> Result<(), Error> {
+    fn write(&self, object_name: String, data: &[u8]) -> Result<Propagation, Error> {
         self.client.put_object(self.bucket.clone(), object_name.clone(), data)?;
-        Ok(())
+        Ok(Propagation::Complete)
     }
 
-    fn delete(&self, object_name: String) -> Result<(), Error> {
-        self.client.delete_object(self.bucket.clone(), object_name.clone())
+    fn delete(&self, object_name: String) -> Result<Propagation, Error> {
+        self.client.delete_object(self.bucket.clone(), object_name.clone())?;
+        Ok(Propagation::Complete)
     }
 
     fn get_size(&self, object_name: String) -> Result<u64, Error> {
@@ -248,9 +250,9 @@ impl SimpleObjectStorage for S3Backend {
         Ok(())
     }
 
-    fn persist_object(&self, object_name: String) -> Result<(), Error> {
+    fn persist_object(&self, object_name: String) -> Result<Propagation, Error> {
         // NOOP
-        Ok(())
+        Ok(Propagation::Noop)
     }
 }
 
@@ -263,7 +265,7 @@ impl PartialAccessObjectStorage for S3Backend {
         Ok(slice)
     }
 
-    fn partial_write(&self, object_name: String, offset: u64, length: usize, data: &[u8]) -> Result<usize, Error> {
+    fn partial_write(&self, object_name: String, offset: u64, length: usize, data: &[u8]) -> Result<Propagation, Error> {
         // isn't supported by S3 (easily..), so need manual patching of the object, race-prune
         // FETCH into Vec<u8>
         let old_buffer: Vec<u8> = self.read(object_name.clone())?;
@@ -281,9 +283,7 @@ impl PartialAccessObjectStorage for S3Backend {
         }
 
         // PUT BACK
-        self.write(object_name, &new_buffer)?;
-
-        Ok(length)
+        self.write(object_name, &new_buffer)
     }
 }
 
