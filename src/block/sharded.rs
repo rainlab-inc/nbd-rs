@@ -4,78 +4,11 @@ use std::{
 };
 
 use crate::{
-    object::{ObjectStorage, storage_with_config},
+    object::{ObjectStorage, object_storage_with_config},
+    block::{BlockStorage},
 };
 
 use log;
-
-pub trait StorageBackend {
-    fn init(&mut self);
-    fn get_name(&self) -> String;
-    fn get_volume_size(&self) -> u64;
-    fn read(&self, offset: u64, length: usize) -> Result<Vec<u8>, Error>;
-    fn write(&mut self, offset: u64, length: usize, data: &[u8]) -> Result<usize, Error>;
-    fn flush(&mut self, offset: u64, length: usize) -> Result<(), Error>;
-    fn close(&mut self);
-}
-
-// Driver: RawBlock
-
-pub struct RawBlock {
-    name: String,
-    volume_size: u64,
-    object_storage: Box<dyn ObjectStorage>,
-}
-
-impl RawBlock {
-    pub fn new(name: String, config: String) -> RawBlock {
-        let mut selfref = RawBlock {
-            name: name.clone(),
-            volume_size: 0_u64,
-            object_storage: storage_with_config(config).unwrap(),
-        };
-        selfref.init();
-        selfref
-    }
-}
-
-impl<'a> StorageBackend for RawBlock {
-    fn init(&mut self) {
-        self.object_storage
-            .start_operations_on_object(self.name.clone()).unwrap();
-
-        self.volume_size = self.object_storage.get_size(self.name.clone()).unwrap_or(0);
-    }
-
-    fn get_name(&self) -> String {
-        self.name.clone()
-    }
-
-    fn get_volume_size(&self) -> u64 {
-        self.volume_size
-    }
-
-    fn read(&self, offset: u64, length: usize) -> Result<Vec<u8>, Error> {
-        self.object_storage
-            .partial_read(self.name.clone(), offset, length)
-    }
-
-    fn write(&mut self, offset: u64, length: usize, data: &[u8]) -> Result<usize, Error> {
-        self.object_storage
-            .partial_write(self.name.clone(), offset, length, data)
-    }
-
-    fn flush(&mut self, offset: u64, length: usize) -> Result<(), Error> {
-        self.object_storage
-            .persist_object(self.name.clone())
-    }
-
-    fn close(&mut self) {
-        self.object_storage
-            .end_operations_on_object(self.name.clone())
-            .expect("Could not close object properly");
-    }
-}
 
 // Driver: ShardedBlock
 
@@ -96,7 +29,7 @@ impl ShardedBlock {
             name: name.clone(),
             volume_size: 0_u64,
             shard_size: default_shard_size,
-            object_storage: storage_with_config(config).unwrap(),
+            object_storage: object_storage_with_config(config).unwrap(),
         };
         sharded_file.init();
         sharded_file
@@ -124,7 +57,7 @@ impl ShardedBlock {
     }
 }
 
-impl StorageBackend for ShardedBlock {
+impl BlockStorage for ShardedBlock {
     fn init(&mut self) {
         self.volume_size = self.size_of_volume();
     }

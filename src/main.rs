@@ -9,7 +9,9 @@ use std::{
 
 use clap::{App, Arg, crate_authors, crate_version};
 
-use crate::storage::StorageBackend;
+use crate::{
+    block::{BlockStorage, block_storage_with_config},
+};
 
 use log;
 use env_logger;
@@ -18,7 +20,7 @@ use env_logger;
 // NBD_OPT_GO | NBD_OPT_INFO: https://github.com/NetworkBlockDevice/nbd/blob/master/nbd-server.c#L2276-L2353
 
 mod object;
-mod storage;
+mod block;
 mod proto;
 mod util;
 
@@ -69,7 +71,7 @@ struct NBDSession {
     socket: TcpStream,
     flags: [bool; 2],
     structured_reply: bool,
-    driver: Option<Box<dyn storage::StorageBackend>>,
+    driver: Option<Box<dyn BlockStorage>>,
     driver_name: String,
     // TODO: contexts: list of active contexts with attached metadata_context_ids
     metadata_context_id: u32,
@@ -99,8 +101,8 @@ impl<'a> NBDSession {
             driver_name: driver_name.clone()
         };
         if driver_name.as_str() != "" {
-            let driver = NBDSession::init_storage_driver(image_name, driver_name, storage_config);
-            session.driver = driver;
+            let driver = block_storage_with_config(image_name, driver_name, storage_config).unwrap();
+            session.driver = Some(driver);
         }
         session
     }
@@ -119,20 +121,6 @@ impl<'a> NBDSession {
         }
     }
 
-    fn init_storage_driver(image_name: String, driver_name: String, storage_config: String) -> Option<Box<dyn StorageBackend>> {
-        match driver_name.as_str() {
-            "raw" => {
-                Some(Box::new(storage::RawBlock::new(image_name.clone(), storage_config)))
-            },
-            "sharded" => {
-                Some(Box::new(storage::ShardedBlock::new(image_name.to_lowercase().clone(), storage_config)))
-            },
-            _ => {
-                log::error!("Couldn't find storage driver: <{}>", driver_name);
-                None
-            }
-        }
-    }
 }
 
 struct NBDServer {
