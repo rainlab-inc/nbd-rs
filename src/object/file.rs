@@ -31,11 +31,6 @@ impl Default for FileBackend {
 }
 
 impl FileBackend {
-    fn print(&self) {
-        let open_files = self.open_files.borrow();
-        println!("{}", format!("Folder Path: '{path}', Keys: {files:?}", path=self.folder_path, files=open_files.keys()));
-    }
-
     pub fn new(config: String) -> FileBackend {
         println!("FileBackend.config: {:?}", &config);
         FileBackend {
@@ -74,7 +69,7 @@ impl FileBackend {
     }
 }
 
-impl<'a> SimpleObjectStorage for FileBackend {
+impl SimpleObjectStorage for FileBackend {
     fn init(&mut self, conn_str: String) {
         self.folder_path = conn_str.clone()
     }
@@ -194,7 +189,7 @@ impl<'a> SimpleObjectStorage for FileBackend {
     }
 }
 
-impl<'a> PartialAccessObjectStorage for FileBackend {
+impl PartialAccessObjectStorage for FileBackend {
 
     fn partial_read(&self, object_name: String, offset: u64, length: usize) -> Result<Vec<u8>, Error> {
         // TODO: Use MMAP if file is already open and mmap'ed.
@@ -221,7 +216,7 @@ impl<'a> PartialAccessObjectStorage for FileBackend {
 
                 file.seek(SeekFrom::Start(offset))?;
                 let mut handle = file.take(length as u64);
-                handle.read_to_end(&mut buffer);
+                handle.read_to_end(&mut buffer)?;
                 return Ok(buffer)
             }
         }

@@ -1,5 +1,4 @@
 use std::io::{Error,ErrorKind};
-use url::{Url};
 
 use crate::block::BlockStorage;
 use crate::block::RawBlock;

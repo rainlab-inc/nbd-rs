@@ -135,7 +135,7 @@ impl BlockStorage for ShardedBlock {
             let shard_offset: usize = cur_offset % self.shard_size as usize;
 
             // until which byte we will write inside this shard
-            let write_target = std::cmp::min((shard_offset + (length - written)), self.shard_size as usize);
+            let write_target = std::cmp::min(shard_offset + (length - written), self.shard_size as usize);
             log::trace!("write_target {} - shard_offset {}", write_target, shard_offset);
             let write_len: usize = write_target - shard_offset;
 

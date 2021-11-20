@@ -1,5 +1,4 @@
 use std::{
-    str,
     io::{Error},
 };
 
@@ -7,8 +6,6 @@ use crate::{
     object::{ObjectStorage, object_storage_with_config},
     block::{BlockStorage},
 };
-
-use log;
 
 // Driver: RawBlock
 
