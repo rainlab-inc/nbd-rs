@@ -7,6 +7,8 @@ use crate::{
     object::{ObjectStorage, storage_with_config},
 };
 
+use log;
+
 pub trait StorageBackend {
     fn init(&mut self);
     fn get_name(&self) -> String;
@@ -86,6 +88,9 @@ pub struct ShardedBlock {
 
 impl ShardedBlock {
     pub fn new(name: String, config: String) -> ShardedBlock {
+        // TODO: Allow configuring disk size in config string
+        //       or a setting like `create=true`
+        // TODO: Allow configuring shard size in config string
         let default_shard_size: u64 = 4 * 1024 * 1024;
         let mut sharded_file = ShardedBlock {
             name: name.clone(),
@@ -102,12 +107,20 @@ impl ShardedBlock {
     }
 
     pub fn size_of_volume(&self) -> u64 {
-        let shard_name = format!("{}/size", self.name.clone());
-        let filedata = self.object_storage.read(shard_name).unwrap(); // TODO: Errors?
-        let mut string = str::from_utf8(&filedata).unwrap().to_string();
+        let object_name = format!("{}/size", self.name.clone());
+        let filedata = self.object_storage.read(object_name); // TODO: Errors?
+        if filedata.is_err() {
+            return 67108864;
+        }
+        // TODO: Allow file to not exist, create if does not exist
+        let mut string = str::from_utf8(&filedata.unwrap()).unwrap().to_string();
         string.retain(|c| !c.is_whitespace());
         let volume_size: u64 = string.parse().unwrap();
         volume_size
+    }
+
+    pub fn shard_name(&self, index: usize) -> String {
+        format!("{}/block-{}", self.name.clone(), index).to_string()
     }
 }
 
@@ -133,10 +146,10 @@ impl StorageBackend for ShardedBlock {
             self.shard_index(offset + length as u64)
         };
 
-        println!("(Read) Start: {}, End: {}", start, end);
+        log::debug!("storage::read(start: {}, end: {})", start, end);
         for i in start..=end {
-            println!("(Read) Iteration: {}", i);
-            let shard_name = format!("{}-{}", self.name.clone(), i.to_string());
+            log::trace!("storage::read(iteration: {})", i);
+            let shard_name = self.shard_name(i);
 
             if self.object_storage.exists(shard_name.clone())? {
                 if i == start {
@@ -174,50 +187,58 @@ impl StorageBackend for ShardedBlock {
     }
 
     fn write(&mut self, offset: u64, length: usize, data: &[u8]) -> Result<usize, Error> {
-        let start = self.shard_index(offset);
-        let end = if 0 == (offset + length as u64) % self.shard_size {
-            self.shard_index(offset + length as u64) - 1
-        } else {
-            self.shard_index(offset + length as u64)
-        };
-        println!("(Write) Start: {}, End: {}", start, end);
-        for i in start..=end {
-            println!("(Write) Iteration: {}", i);
-            let shard_name = format!("{}-{}", self.name.clone(), i.to_string());
+        // let start = self.shard_index(offset);
+        // let end = if 0 == (offset + length as u64) % self.shard_size {
+        //     self.shard_index(offset + length as u64) - 1
+        // } else {
+        //     self.shard_index(offset + length as u64)
+        // };
+        log::trace!("storage::write(offset: {}, length: {})", offset, length);
+        let mut cur_offset: usize = offset as usize;
+        let mut cur_shard = 0;
+        let mut written: usize = 0;
+        while written < length {
+            cur_shard = self.shard_index(cur_offset as u64);
+            let shard_offset: usize = cur_offset % self.shard_size as usize;
 
-            let range_start = (offset % self.shard_size + (i as u64) * self.shard_size) as usize;
-            let range_end = (offset % self.shard_size + (i as u64 + 1) * self.shard_size) as usize;
+            // until which byte we will write inside this shard
+            let write_target = std::cmp::min((shard_offset + (length - written)), self.shard_size as usize);
+            log::trace!("write_target {} - shard_offset {}", write_target, shard_offset);
+            let write_len: usize = write_target - shard_offset;
 
-            if i == start {
-                let write_len = std::cmp::min((self.shard_size - offset % self.shard_size) as usize, length);
-                if !self.object_storage.exists(shard_name.clone())? {
-                    let zeroes: Vec<u8> = vec![0_u8; self.shard_size as usize - write_len];
-                    let mut buffer: Vec<u8> = Vec::new();
-                    buffer.extend_from_slice(&zeroes);
-                    buffer.extend_from_slice(&data[0..write_len]);
+            log::trace!("storage::write(shard: {}, offset: {}, len: {})", cur_shard, shard_offset, write_len);
+            let shard_name = self.shard_name(cur_shard);
 
-                    self.object_storage.write(shard_name.clone(), &buffer)?;
-                    continue;
-                } else {
-                    self.object_storage.partial_write(shard_name.clone(), offset % self.shard_size, write_len, &data[0..write_len])?;
-                    continue;
-                }
-            } else if i == end {
-                let write_len = ((length as u64 + offset % self.shard_size) % self.shard_size) as usize;
-                if !self.object_storage.exists(shard_name.clone())? {
-                    let zeroes: Vec<u8> = vec![0_u8; self.shard_size as usize - write_len];
-                    let mut buffer: Vec<u8> = Vec::new();
-                    buffer.extend_from_slice(&data[range_start..(range_start + write_len)]);
-                    buffer.extend_from_slice(&zeroes);
-                    self.object_storage.write(shard_name.clone(), &buffer)?;
-                    break;
-                } else {
-                    self.object_storage.partial_write(shard_name.clone(), 0, write_len, &data[range_start..(range_start + write_len)])?;
-                    break;
-                }
+            let slice = &data[written..(written + write_len)];
+
+            // full write
+            if write_len == self.shard_size as usize {
+                self.object_storage.write(shard_name.clone(), slice)?;
+                written += write_len;
             }
 
-            self.object_storage.write(shard_name.clone(), &data[range_start..range_end])?;
+            // new object
+            else if !self.object_storage.exists(shard_name.clone())? {
+                let mut buffer: Vec<u8> = Vec::new();
+                // pad zeroes (head)
+                if shard_offset > 0 {
+                    let head_zeroes: Vec<u8> = vec![0_u8; shard_offset as usize];
+                    buffer.extend_from_slice(&head_zeroes);
+                }
+                buffer.extend_from_slice(slice);
+                // pad zeroes (tail)
+                if write_target < self.shard_size as usize - 1 {
+                    let tail_zeroes: Vec<u8> = vec![0_u8; (self.shard_size as usize - write_len - shard_offset) as usize];
+                    buffer.extend_from_slice(&tail_zeroes);
+                }
+                self.object_storage.write(shard_name.clone(), &buffer)?;
+                written += write_len;
+
+            // existing object, partial write
+            } else {
+                self.object_storage.partial_write(shard_name.clone(), shard_offset as u64, write_len, slice)?;
+            }
+            written += write_len;
         }
         Ok(length)
     }
@@ -229,10 +250,10 @@ impl StorageBackend for ShardedBlock {
         } else {
             self.shard_index(offset + length as u64)
         };
-        println!("(Flush) Start: {}, End: {}", start, end);
+        log::debug!("storage::flush(start: {}, end: {})", start, end);
         for i in start..=end {
-            println!("(Flush) Iteration: {}", i);
-            let shard_name = format!("{}-{}", self.name.clone(), i.to_string());
+            log::trace!("storage::flush(iteration: {})", i);
+            let shard_name = self.shard_name(i);
             self.object_storage.persist_object(shard_name.clone())?;
         }
 
@@ -240,6 +261,6 @@ impl StorageBackend for ShardedBlock {
     }
 
     fn close(&mut self) {
-        println!("Closed");
+        log::debug!("storage::close");
     }
 }

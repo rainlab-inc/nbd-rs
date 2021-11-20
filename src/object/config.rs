@@ -3,10 +3,13 @@ use url::{Url};
 
 use crate::object::ObjectStorage;
 use crate::object::FileBackend;
+use crate::object::S3Backend;
 
 pub fn storage_with_config(config: String) -> Result<Box<dyn ObjectStorage>, Error> {
     let issue_list_url = Url::parse(&config)
         .expect("Failed to parse config (URL)");
+
+    log::info!("storage: {:?}", &issue_list_url);
 
     return match issue_list_url.scheme() {
         "file" => {
@@ -15,6 +18,9 @@ pub fn storage_with_config(config: String) -> Result<Box<dyn ObjectStorage>, Err
             path_from_url.next().unwrap(); // 'file:'
             let path = path_from_url.next().unwrap_or("./");
             Ok(Box::new(FileBackend::new(String::from(path))))
+        },
+        "s3+http" | "s3+https" => {
+            Ok(Box::new(S3Backend::new(config.strip_prefix("s3+").unwrap().to_string())))
         },
         _ => {
             // hard fail

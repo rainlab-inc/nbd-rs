@@ -11,6 +11,9 @@ use clap::{App, Arg, crate_authors, crate_version};
 
 use crate::storage::StorageBackend;
 
+use log;
+use env_logger;
+
 // https://github.com/NetworkBlockDevice/nbd/blob/master/nbd-server.c#L2362-L2468
 // NBD_OPT_GO | NBD_OPT_INFO: https://github.com/NetworkBlockDevice/nbd/blob/master/nbd-server.c#L2276-L2353
 
@@ -43,16 +46,19 @@ struct NBDOption {
 
 #[derive(Hash)]
 struct NBDExportConfig {
+    name: String,
     driver_type: String,
     conn_str: String
 }
 
 impl NBDExportConfig {
-    fn new(driver_type: String, conn_str: String) -> NBDExportConfig {
+    fn new(name: String, driver_type: String, conn_str: String) -> NBDExportConfig {
         if !["raw", "sharded"].contains(&driver_type.as_str()) {
             panic!("Driver must be one of the values `raw` or `sharded`. Found '{}'", driver_type);
         }
+        log::info!("export {:?} -> {:?}({:?})", &name, &driver_type, &conn_str);
         NBDExportConfig {
+            name: name,
             driver_type: driver_type,
             conn_str: conn_str
         }
@@ -122,7 +128,7 @@ impl<'a> NBDSession {
                 Some(Box::new(storage::ShardedBlock::new(image_name.to_lowercase().clone(), storage_config)))
             },
             _ => {
-                println!("Couldn't find storage driver: <{}>", driver_name);
+                log::error!("Couldn't find storage driver: <{}>", driver_name);
                 None
             }
         }
@@ -155,7 +161,7 @@ impl<'a> NBDServer {
 
     fn listen(&mut self) {
         let hostport = format!("{}:{}", self.host, self.port);
-        println!("Listening on {}", hostport);
+        log::info!("Listening on {}", hostport);
         // let listener = self.socket;
 
         loop {
@@ -164,7 +170,7 @@ impl<'a> NBDServer {
             let (stream, _) = match self.socket.accept() {
                 Ok(conn) => conn,
                 Err(e) => {
-                    eprintln!("failed to accept: {:?}", e);
+                    log::error!("failed to accept: {:?}", e);
                     break;
                 }
             };
@@ -172,7 +178,7 @@ impl<'a> NBDServer {
             self.transmission(stream);
         }
 
-        println!("Done");
+        log::info!("Done");
     }
 
     fn handle_connection(&mut self, socket: TcpStream /*, addr: SocketAddr*/) {
@@ -188,11 +194,11 @@ impl<'a> NBDServer {
             String::from("")
         );
         self.session = Some(session);
-        println!("Connection established!");
+        log::info!("Connection established!");
     }
 
     fn handshake(&mut self, mut socket: TcpStream) -> [bool; 2] {
-        println!("Handshake started...");
+        log::debug!("Handshake started...");
         let newstyle = proto::NBD_FLAG_FIXED_NEWSTYLE;
         let no_zeroes = proto::NBD_FLAG_NO_ZEROES;
         let handshake_flags = (newstyle | no_zeroes) as u16;
@@ -200,7 +206,7 @@ impl<'a> NBDServer {
         write!(b"NBDMAGIC", socket);
         write!(b"IHAVEOPT", socket);
         util::write_u16(handshake_flags, clone_stream!(socket));
-        println!("Initial message sent");
+        log::trace!("Initial message sent");
 
         let client_flags = util::read_u32(clone_stream!(socket));
         let flags_list = [
@@ -208,14 +214,14 @@ impl<'a> NBDServer {
             client_flags & (proto::NBD_FLAG_C_NO_ZEROES as u32) != 0,
         ];
 
-        println!(" -> fixedNewStyle: {}", flags_list[0]);
-        println!(" -> noZeroes: {}", flags_list[1]);
-        println!("Handshake done successfully!");
+        log::debug!(" -> fixedNewStyle: {}", flags_list[0]);
+        log::debug!(" -> noZeroes: {}", flags_list[1]);
+        log::debug!("Handshake done successfully!");
         flags_list
     }
 
     fn transmission(&mut self, socket: TcpStream) {
-        println!("Transmission started...");
+        log::debug!("Transmission");
         loop {
             let req = match util::read_u32(clone_stream!(socket)) {
                 0x25609513 => 0x25609513, // NBD_REQUEST_MAGIC
@@ -223,7 +229,7 @@ impl<'a> NBDServer {
                     // "IHAV"
                     0x454F5054 => 0x49484156454F5054 as u64, // "IHAV + EOPT"
                     e => {
-                        eprintln!(
+                        log::error!(
                             "Error at NBD_IHAVEOPT. Expected: 0x49484156454F5054 Got: {:?}",
                             format!("{:#X}", e)
                         );
@@ -231,11 +237,11 @@ impl<'a> NBDServer {
                     }
                 },
                 0x0 => {
-                    println!("Terminating connection.");
+                    log::info!("Terminating connection.");
                     break;
                 },
                 e => {
-                    eprintln!(
+                    log::error!(
                         "Error at NBD_REQUEST_MAGIC. Expected: 0x25609513 Got: {:?}",
                         format!("{:#X}", e)
                     );
@@ -254,7 +260,7 @@ impl<'a> NBDServer {
                 _ => (),
             }
         }
-        println!("Transmission ended");
+        log::info!("Transmission ended");
     }
 
     fn handle_request(&mut self, mut socket: TcpStream) {
@@ -269,29 +275,55 @@ impl<'a> NBDServer {
         };
         match req_type {
             proto::NBD_CMD_READ => { // 0
-                println!("NBD_CMD_READ");
-                println!("\t-->flags:{}, handle: {}, offset: {}, datalen: {}", flags, handle, offset, datalen);
+                log::debug!("NBD_CMD_READ");
+                log::trace!("\t-->flags:{}, handle: {}, offset: {}, datalen: {}", flags, handle, offset, datalen);
                 let session = self.session.as_ref().unwrap();
-                println!("STRUCTURED REPLY: {}", structured_reply);
+                log::trace!("STRUCTURED REPLY: {}", structured_reply);
                 let driver = session.driver.as_ref().unwrap();
-                let buffer = driver.read(offset, datalen as usize);
-                if structured_reply == true {
-                    NBDServer::structured_reply(
-                        clone_stream!(socket),
-                        proto::NBD_REPLY_FLAG_DONE,
-                        proto::NBD_REPLY_TYPE_OFFSET_DATA,
-                        handle,
-                        8 + datalen
-                    );
-                    util::write_u64(offset, clone_stream!(socket));
+                let buffer_res = driver.read(offset, datalen as usize);
+                if buffer_res.is_err() {
+                    // handle error
+                    let err = buffer_res.err().unwrap().to_string();
+                    log::warn!("NBD_CMD_READ failed: {}", err.clone());
+                    let err_msg = err.as_bytes();
+                    if structured_reply == true {
+                        NBDServer::structured_reply(
+                            clone_stream!(socket),
+                            proto::NBD_REPLY_FLAG_DONE,
+                            proto::NBD_REPLY_TYPE_ERROR,
+                            handle,
+                            6 + err_msg.len() as u32
+                        );
+                        util::write_u32(proto::NBD_REP_ERR_UNKNOWN, clone_stream!(socket));
+                        util::write_u16(err_msg.len() as u16, clone_stream!(socket));
+                        write!(err_msg, socket);
+                    } else {
+                        NBDServer::simple_reply(
+                            clone_stream!(socket),
+                            proto::NBD_REP_ERR_UNKNOWN,
+                            handle
+                        );
+                    }
                 } else {
-                    NBDServer::simple_reply(clone_stream!(socket), 0_u32, handle);
+                    log::debug!("NBD_CMD_READ ok!");
+                    if structured_reply == true {
+                        NBDServer::structured_reply(
+                            clone_stream!(socket),
+                            proto::NBD_REPLY_FLAG_DONE,
+                            proto::NBD_REPLY_TYPE_OFFSET_DATA,
+                            handle,
+                            8 + datalen
+                        );
+                        util::write_u64(offset, clone_stream!(socket));
+                    } else {
+                        NBDServer::simple_reply(clone_stream!(socket), 0_u32, handle);
+                    }
+                    socket.write(&buffer_res.unwrap()).expect("Couldn't send data.");
                 }
-                socket.write(&buffer.unwrap()).expect("Couldn't send data.");
             }
             proto::NBD_CMD_WRITE => { // 1
-                println!("NBD_CMD_WRITE");
-                println!("\t-->flags:{}, handle: {}, offset: {}, datalen: {}", flags, handle, offset, datalen);
+                log::debug!("NBD_CMD_WRITE");
+                log::trace!("\t-->flags:{}, handle: {}, offset: {}, datalen: {}", flags, handle, offset, datalen);
                 let mut data = vec![0; datalen as usize];
                 match clone_stream!(socket).read_exact(&mut data) {
                     Ok(_) => {
@@ -299,24 +331,48 @@ impl<'a> NBDServer {
                         let mut driver = session.driver.take().unwrap();
                         let driver_name = driver.get_name();
 
-                        // TODO: Handle errors
-                        driver.write(offset, datalen as usize, &data)
-                            .unwrap(); // panics on error
-
-                        if structured_reply == true {
-                            NBDServer::structured_reply(
-                                clone_stream!(socket),
-                                proto::NBD_REPLY_FLAG_DONE,
-                                proto::NBD_REPLY_TYPE_NONE,
-                                handle,
-                                0
-                            );
+                        let write_res = driver.write(offset, datalen as usize, &data);
+                        if write_res.is_err() {
+                            // handle error
+                            let err = write_res.err().unwrap().to_string();
+                            log::warn!("NBD_CMD_WRITE failed: {}", err.clone());
+                            let err_msg = err.as_bytes();
+                            if structured_reply == true {
+                                NBDServer::structured_reply(
+                                    clone_stream!(socket),
+                                    proto::NBD_REPLY_FLAG_DONE,
+                                    proto::NBD_REPLY_TYPE_ERROR,
+                                    handle,
+                                    6 + err_msg.len() as u32
+                                );
+                                util::write_u32(proto::NBD_REP_ERR_UNKNOWN, clone_stream!(socket));
+                                util::write_u16(err_msg.len() as u16, clone_stream!(socket));
+                                write!(err_msg, socket);
+                            } else {
+                                NBDServer::simple_reply(
+                                    clone_stream!(socket),
+                                    proto::NBD_REP_ERR_UNKNOWN,
+                                    handle
+                                );
+                            }
                         } else {
-                            NBDServer::simple_reply(
-                                clone_stream!(socket),
-                                0_u32,
-                                handle
-                            );
+                            log::debug!("NBD_CMD_WRITE ok!");
+
+                            if structured_reply == true {
+                                NBDServer::structured_reply(
+                                    clone_stream!(socket),
+                                    proto::NBD_REPLY_FLAG_DONE,
+                                    proto::NBD_REPLY_TYPE_NONE,
+                                    handle,
+                                    0
+                                );
+                            } else {
+                                NBDServer::simple_reply(
+                                    clone_stream!(socket),
+                                    0_u32,
+                                    handle
+                                );
+                            }
                         }
                         self.session = Some(NBDSession {
                             socket: clone_stream!(socket),
@@ -328,7 +384,7 @@ impl<'a> NBDServer {
                         });
                     },
                     Err(e) => {
-                        eprintln!("{}", e);
+                        log::error!("{}", e);
                         if structured_reply == true {
                             let err_msg = b"Could not receive the data. Please try again later";
                             NBDServer::structured_reply(
@@ -353,7 +409,7 @@ impl<'a> NBDServer {
             }
             proto::NBD_CMD_DISC => { // 2
                 // Terminate TLS
-                println!("NBD_CMD_DISC");
+                log::debug!("NBD_CMD_DISC");
                 let mut session = self.session.take().unwrap();
                 let driver = session.driver.take();
                 if driver.is_some() {
@@ -370,13 +426,13 @@ impl<'a> NBDServer {
                 ));
             }
             proto::NBD_CMD_FLUSH => { // 3
-                println!("NBD_CMD_FLUSH");
+                log::debug!("NBD_CMD_FLUSH");
                 let mut session = self.session.take().unwrap();
                 let mut driver = session.driver.take().unwrap();
                 let driver_name = driver.get_name();
                 match driver.flush(0, driver.get_volume_size() as usize) {
-                    Ok(_) => println!("flushed"),
-                    Err(e) => eprintln!("{}", e)
+                    Ok(_) => log::trace!("flushed"),
+                    Err(e) => log::error!("{}", e)
                 }
                 if structured_reply == true {
                     NBDServer::structured_reply(
@@ -400,10 +456,10 @@ impl<'a> NBDServer {
             }
             proto::NBD_CMD_BLOCK_STATUS => { // 7
                 // fsync
+                log::debug!("NBD_CMD_BLOCK_STATUS");
                 let session = self.session.as_ref().unwrap();
                 let single_extent_only = (flags & proto::NBD_CMD_FLAG_REQ_ONE) != 0;
-                println!("NBD_CMD_BLOCK_STATUS");
-                println!("\t-->flags:{}, handle: {}, offset: {}, datalen: {}", flags, handle, offset, datalen);
+                log::trace!("\t-->flags:{}, handle: {}, offset: {}, datalen: {}", flags, handle, offset, datalen);
                 NBDServer::structured_reply(
                     clone_stream!(socket),
                     proto::NBD_REPLY_FLAG_DONE,
@@ -416,7 +472,7 @@ impl<'a> NBDServer {
                 util::write_u32(0, clone_stream!(socket));
             }
             _ => {
-                eprintln!("Invalid/Unimplemented CMD: {:?}", req_type);
+                log::warn!("Invalid/Unimplemented CMD: {:?}", req_type);
                 NBDServer::simple_reply(clone_stream!(socket), proto::NBD_REP_ERR_UNSUP, handle);
             }
         }
@@ -449,7 +505,7 @@ impl<'a> NBDServer {
 
     fn handle_option(&mut self, socket: TcpStream) {
         let option = util::read_u32(clone_stream!(socket));
-        println!("Option: {}", option);
+        log::debug!("Option: {}", option);
         match option {
             proto::NBD_OPT_ABORT => {// 2
                 self.handle_opt_abort(clone_stream!(socket));
@@ -463,7 +519,7 @@ impl<'a> NBDServer {
             proto::NBD_OPT_STRUCTURED_REPLY => {// 8
                 let data = util::read_u32(clone_stream!(socket));
                 if data > 0 {
-                    println!("{}", data);
+                    log::trace!("{}", data);
                     self.reply(
                         clone_stream!(socket),
                         proto::NBD_OPT_STRUCTURED_REPLY,
@@ -485,7 +541,7 @@ impl<'a> NBDServer {
                 self.handle_opt_set_meta_context(clone_stream!(socket));
             }
             _ => {
-                eprintln!("Invalid/Unimplemented OPT: {:?}", option);
+                log::warn!("Invalid/Unimplemented OPT: {:?}", option);
                 self.reply_opt(
                     clone_stream!(socket),
                     option,
@@ -510,6 +566,7 @@ impl<'a> NBDServer {
             proto::NBD_REP_INFO,
             12
         );
+        // FIXME! selected_export could be None. a proper error must be returned
         let selected_export = self.exports.get_key_value(&name.to_lowercase()).unwrap();
         let session = self.session.as_ref().unwrap();
         let mut volume_size: u64 = 256 * 1024 * 1024;
@@ -532,10 +589,10 @@ impl<'a> NBDServer {
         util::write_u16(proto::NBD_INFO_EXPORT, clone_stream!(socket));
         util::write_u64(volume_size, clone_stream!(socket));
         util::write_u16(flags, clone_stream!(socket));
-        println!("\t-->Export Data Sent:");
-        println!("\t-->\t-->NBD_INFO_EXPORT: \t{:?}", proto::NBD_INFO_EXPORT as u16);
-        println!("\t-->\t-->Volume Size: \t{:?}", volume_size as u32);
-        println!("\t-->\t-->Transmission Flags: \t{:?}", flags as u16);
+        log::debug!("\t-->Export Data Sent:");
+        log::debug!("\t-->\t-->NBD_INFO_EXPORT: \t{:?}", proto::NBD_INFO_EXPORT as u16);
+        log::debug!("\t-->\t-->Volume Size: \t{:?}", volume_size as u32);
+        log::debug!("\t-->\t-->Transmission Flags: \t{:?}", flags as u16);
     }
 
     fn reply_opt(
@@ -548,17 +605,17 @@ impl<'a> NBDServer {
         let data_permitted = vec![1, 6, 7, 9, 10].contains(&opt); // OPTION CODES THAT IS ALLOWED TO CARRY DATA
         self.reply(clone_stream!(socket), opt, reply_type, 4 + len);
         util::write_u32(len, clone_stream!(socket));
-        println!(" -> Option: {:?}, Option length: {:?}, Data permitted: {:?}", opt, len, data_permitted);
+        log::debug!(" -> Option: {:?}, Option length: {:?}, Data permitted: {:?}", opt, len, data_permitted);
 
         if len > 0 {
             let mut data = vec![0; len as usize];
             clone_stream!(socket) // Docs says server should not reject the data even if not needed
                 .read_exact(&mut data)
                 .expect("Error on reading Option Data!");
-            println!("\t\\-> Data: {:?}", data);
+            log::trace!("\t\\-> Data: {:?}", data);
             if data_permitted {
                 write!(&data, socket);
-                println!("Data sent for option {:?}", opt);
+                log::trace!("Data sent for option {:?}", opt);
             }
         }
     }
@@ -583,6 +640,7 @@ impl<'a> NBDServer {
     }
 
     fn handle_opt_info_go(&mut self, mut socket: TcpStream, opt: u32) {
+        log::debug!("handle_opt_info_go");
         let _len = util::read_u32(clone_stream!(socket));
         let namelen = util::read_u32(clone_stream!(socket));
         // if namelen > len - 6 { return NBD_EINVAL }
@@ -595,8 +653,8 @@ impl<'a> NBDServer {
         for _ in 0..info_req_count {
             info_reqs.push(util::read_u16(clone_stream!(socket)));
         }
-        println!("len:{},namelen:{},name:{},info_req_count:{}", _len, namelen, name, info_req_count);
-        println!("\t-->Info Requests: {:?}", info_reqs);
+        log::trace!("len:{},namelen:{},name:{},info_req_count:{}", _len, namelen, name, info_req_count);
+        log::trace!("\t-->Info Requests: {:?}", info_reqs);
 
         if info_reqs.is_empty() { //The client MAY list one or more items of specific information it is seeking in the list of information requests, or it MAY specify an empty list.
             info_reqs.push(3_u16);
@@ -640,11 +698,11 @@ impl<'a> NBDServer {
                     util::write_u32(512 as u32, clone_stream!(socket));
                     util::write_u32(4*1024 as u32, clone_stream!(socket));
                     util::write_u32(32*1024*1024 as u32, clone_stream!(socket));
-                    println!("\t-->Sent block size info");
+                    log::debug!("\t-->Sent block size info");
                     self.reply_info_export(clone_stream!(socket), opt, name.clone());
                 }
                 r @ _ => {
-                    eprintln!("Invalid Info Request: {:?}", r);
+                    log::warn!("Invalid Info Request: {:?}", r);
                     self.reply_opt(
                         clone_stream!(socket),
                         proto::NBD_REP_INFO,
@@ -678,6 +736,7 @@ impl<'a> NBDServer {
 
 
     fn handle_opt_set_meta_context(&mut self, socket: TcpStream) {
+        log::debug!("handle_opt_set_meta_context");
         let total_length = util::read_u32(clone_stream!(socket));
         let export_name_length = util::read_u32(clone_stream!(socket));
         let export_name = match export_name_length {
@@ -685,12 +744,12 @@ impl<'a> NBDServer {
             _ => util::read_string(export_name_length as usize, clone_stream!(socket)),
         };
         let number_of_queries = util::read_u32(clone_stream!(socket));
-        println!("\t-->total_length: {}, export_name_length: {}, export_name: {}, number_of_queries: {}", total_length, export_name_length, export_name, number_of_queries);
+        log::trace!("\t-->total_length: {}, export_name_length: {}, export_name: {}, number_of_queries: {}", total_length, export_name_length, export_name, number_of_queries);
         if number_of_queries > 0 {
             for i in 0..number_of_queries {
                 let query_length = util::read_u32(clone_stream!(socket));
                 let query = util::read_string(query_length as usize, clone_stream!(socket));
-                println!("\t-->\t-->iter: {}, query: {}", i + 1, query);
+                log::trace!("\t-->\t-->iter: {}, query: {}", i + 1, query);
                 self.reply(
                     clone_stream!(socket),
                     proto::NBD_OPT_SET_META_CONTEXT,
@@ -731,6 +790,8 @@ impl<'a> NBDServer {
 }
 
 fn main() {
+    env_logger::init();
+    log::trace!("Parsing arguments");
     let matches = App::new("nbd-rs")
         .about("NBD Server written in Rust.")
         .author(crate_authors!())
@@ -758,6 +819,7 @@ Sets the export(s) via `export` argument. Must be used at least once."),
     for i in 0..(matches.occurrences_of("export") as usize) {
         exports.insert(vals[i * 3].clone(),
             NBDExportConfig::new(
+                vals[i * 3].clone(),
                 vals[i * 3 + 1].clone(),
                 vals[i * 3 + 2].clone()
             )

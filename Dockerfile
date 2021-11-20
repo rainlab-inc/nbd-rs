@@ -1,9 +1,8 @@
-FROM rust:1-alpine3.14 as builder
-WORKDIR /usr/src/nbd-proxy-rs
+FROM rust:1 as builder
+WORKDIR /usr/src/nbd-rs
 COPY . .
 RUN cargo install --path .
 
-FROM alpine:3.14
-RUN apk add tini
-COPY --from=builder /usr/local/cargo/bin/nbd-proxy-rs /usr/local/bin/nbd-proxy-rs
-ENTRYPOINT [ "/sbin/tini", "--", "/usr/local/bin/nbd-proxy-rs" ]
+FROM debian:buster
+COPY --from=builder /usr/local/cargo/bin/nbd-rs /usr/local/bin/nbd-rs
+ENTRYPOINT [ "/usr/local/bin/nbd-rs" ]

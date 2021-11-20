@@ -45,8 +45,8 @@ pub const NBD_REPLY_TYPE_NONE: u16 = 0;
 pub const NBD_REPLY_TYPE_OFFSET_DATA: u16 = 1;
 pub const NBD_REPLY_TYPE_OFFSET_HOLE: u16 = 2;
 pub const NBD_REPLY_TYPE_BLOCK_STATUS: u16 = 5;
-pub const NBD_REPLY_TYPE_ERROR: u16 = 2 ^ 15 + 1;
-pub const NBD_REPLY_TYPE_ERROR_OFFSET: u16 = 2 ^ 15 + 2;
+pub const NBD_REPLY_TYPE_ERROR: u16 = (1 << 15) + 1;
+pub const NBD_REPLY_TYPE_ERROR_OFFSET: u16 = (1 << 15) + 2;
 
 pub const NBD_REP_ACK: u32 = 1;
 pub const NBD_REP_SERVER: u32 = 2;
