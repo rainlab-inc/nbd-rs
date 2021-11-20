@@ -980,8 +980,7 @@ dependencies = [
 [[package]]
 name = "rust-s3"
 version = "0.28.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "18c58d4682844a5d6301efbf915dd7a9d3d638006f9bb821527a0bbbf2a4cfc2"
+source = "git+https://git.rlab.io/forks/rust-crates/rust-s3.git?branch=rlab/0.28-dev#714325be8956877021edbcf7705b3cccf6b71cac"
 dependencies = [
  "anyhow",
  "async-trait",
