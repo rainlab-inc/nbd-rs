@@ -11,6 +11,9 @@ pub use self::file::FileBackend;
 mod s3;
 pub use self::s3::S3Backend;
 
+mod cache;
+pub use self::cache::CacheBackend;
+
 use crate::util::Propagation;
 
 pub trait SimpleObjectStorage {

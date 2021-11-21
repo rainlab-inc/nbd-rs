@@ -1,9 +1,5 @@
 use std::{
-    io::{Read, Error, ErrorKind},
-    time::{Duration, Instant},
-    collections::{HashMap},
-    rc::{Rc},
-    cell::{RefCell},
+    io::{Error, ErrorKind},
 };
 use url::{Url};
 
@@ -175,27 +171,12 @@ impl S3Client {
 
         Ok(object_meta)
     }
-
-}
-
-pub struct S3CachedObject {
-    data: Vec<u8>,
-    size: usize,
-    keep: u16,
-    reads: u16,
-    writes: u16,
-    persists: u16,
-    last_read: Option<Instant>,
-    last_write: Option<Instant>,
-    last_persist: Option<Instant>,
 }
 
 pub struct S3Backend {
     url: String,
     client: S3Client,
     bucket: String,
-    cache: RefCell<HashMap<String, Rc<RefCell<S3CachedObject>>>>,
-    mem_usage: RefCell<usize>,
 }
 
 impl S3Backend {
@@ -218,10 +199,6 @@ impl S3Backend {
                 path_style: true, // TODO: Derive from URL
             }),
             bucket: parsed_url.path_segments().unwrap().next().unwrap().to_string(),
-            cache: RefCell::<HashMap<String, Rc<RefCell<S3CachedObject>>>>::new(
-                HashMap::<String, Rc<RefCell<S3CachedObject>>>::new()
-            ),
-            mem_usage: RefCell::<usize>::new(0),
         }
     }
 }
@@ -232,11 +209,6 @@ impl SimpleObjectStorage for S3Backend {
     }
 
     fn exists(&self, object_name: String) -> Result<bool, Error> {
-        let cache = self.cache.borrow();
-        if cache.contains_key(&object_name.clone()) {
-            return Ok(true);
-        }
-
         let object_meta = self.client.get_object_meta(self.bucket.clone(), object_name.clone());
         if object_meta.is_err() {
             let err = object_meta.err().unwrap();
@@ -249,146 +221,42 @@ impl SimpleObjectStorage for S3Backend {
     }
 
     fn read(&self, object_name: String) -> Result<Vec<u8>, Error> {
-        let mut cache = self.cache.borrow_mut();
-        let cached_obj_ref = cache.get_key_value(&object_name.clone());
-        if cached_obj_ref.is_some() {
-            let mut cached_obj = cached_obj_ref.unwrap().1.borrow_mut();
-            cached_obj.reads += 1;
-            cached_obj.last_read = Some(Instant::now());
-            return Ok(cached_obj.data.clone());
-        }
-
         let data = self.client.get_object(self.bucket.clone(), object_name.clone())?;
-        let cached_object = S3CachedObject {
-            data: data.clone(),
-            size: data.len(),
-            keep: 0,
-            reads: 0,
-            writes: 0,
-            persists: 0,
-            last_read: Some(Instant::now()),
-            last_write: None,
-            last_persist: None,
-        };
-        let mut mem_usage = self.mem_usage.borrow_mut();
-        *mem_usage += cached_object.size;
-        log::trace!("s3: mem_usage: {}", mem_usage);
-        cache.insert(object_name.clone(), Rc::new(RefCell::new(cached_object)));
         Ok(data)
     }
 
     fn write(&self, object_name: String, data: &[u8]) -> Result<Propagation, Error> {
-        let mut cache = self.cache.borrow_mut();
-        let cached_obj_ref = cache.get_key_value(&object_name.clone());
-        if cached_obj_ref.is_some() {
-            let mut cached_obj = cached_obj_ref.unwrap().1.borrow_mut();
-            cached_obj.writes += 1;
-            cached_obj.last_write = Some(Instant::now());
-            cached_obj.data = data.to_vec();
-            return Ok(Propagation::Queued);
-        }
-
-        let cached_object = S3CachedObject {
-            data: data.to_vec(),
-            size: data.len(),
-            keep: 0,
-            reads: 0,
-            writes: 1,
-            persists: 0,
-            last_read: None,
-            last_write: Some(Instant::now()),
-            last_persist: None,
-        };
-        let mut mem_usage = self.mem_usage.borrow_mut();
-        *mem_usage += cached_object.size;
-        log::trace!("s3: mem_usage: {}", mem_usage);
-        cache.insert(object_name.clone(), Rc::new(RefCell::new(cached_object)));
-
-        // self.client.put_object(self.bucket.clone(), object_name.clone(), data)?;
-        Ok(Propagation::Queued)
+        self.client.put_object(self.bucket.clone(), object_name.clone(), data)?;
+        Ok(Propagation::Complete)
     }
 
     fn delete(&self, object_name: String) -> Result<Propagation, Error> {
-        self.client.delete_object(self.bucket.clone(), object_name.clone())?;
-        let mut cache = self.cache.borrow_mut();
-        let cached_obj_ref = cache.get_key_value(&object_name.clone());
-        if cached_obj_ref.is_some() {
-            let cached_obj = cached_obj_ref.unwrap().1.borrow();
-            let mut mem_usage = self.mem_usage.borrow_mut();
-            *mem_usage -= cached_obj.size;
-            log::trace!("s3: mem_usage: {}", mem_usage);
-        }
-        cache.remove(&object_name.clone());
-
         self.client.delete_object(self.bucket.clone(), object_name.clone())?;
         Ok(Propagation::Complete)
     }
 
     fn get_size(&self, object_name: String) -> Result<u64, Error> {
-        let cache = self.cache.borrow();
-        let cached_obj_ref = cache.get_key_value(&object_name.clone());
-        if cached_obj_ref.is_some() {
-            let cached_obj = cached_obj_ref.unwrap().1.borrow();
-            return Ok(cached_obj.size as u64);
-        }
-
         let object_meta = self.client.get_object_meta(self.bucket.clone(), object_name.clone())?;
         Ok(object_meta.size)
     }
 
     fn start_operations_on_object(&self, object_name: String) -> Result<(), Error> {
-        // increase
-        let mut cache = self.cache.borrow_mut();
-        if !cache.contains_key(&object_name.clone()) {
-            // for side effect;
-            self.read(object_name.clone())?;
-        }
-
-        let cached_obj_ref = cache.get_key_value(&object_name.clone());
-        if cached_obj_ref.is_some() {
-            let mut cached_obj = cached_obj_ref.unwrap().1.borrow_mut();
-            cached_obj.keep += 1;
-        }
-
+        // Noop
         Ok(())
     }
 
     fn end_operations_on_object(&self, object_name: String) -> Result<(), Error> {
-        // decrease
-        let mut cache = self.cache.borrow_mut();
-        let cached_obj_ref = cache.get_key_value(&object_name.clone());
-        if cached_obj_ref.is_some() {
-            let mut cached_obj = cached_obj_ref.unwrap().1.borrow_mut();
-            cached_obj.keep -= 1;
-        }
-
+        // Noop
         Ok(())
     }
 
     fn persist_object(&self, object_name: String) -> Result<Propagation, Error> {
-        // NOOP
-        let mut cache = self.cache.borrow_mut();
-        let cached_obj_ref = cache.get_key_value(&object_name.clone());
-        if cached_obj_ref.is_some() {
-            let mut cached_obj = cached_obj_ref.unwrap().1.borrow_mut();
-
-            // already persisted
-            if cached_obj.persists == cached_obj.writes {
-                return Ok(Propagation::Redundant);
-            }
-
-            self.client.put_object(self.bucket.clone(), object_name.clone(), &cached_obj.data.clone())?;
-            cached_obj.persists = cached_obj.writes;
-            cached_obj.last_persist = Some(Instant::now());
-            return Ok(Propagation::Complete);
-        }
-
+        // Noop
         Ok(Propagation::Noop)
     }
 }
 
 impl PartialAccessObjectStorage for S3Backend {
-
     fn partial_read(&self, object_name: String, offset: u64, length: usize) -> Result<Vec<u8>, Error> {
         // self.client.get_object_partial(self.bucket.clone(), object_name.clone(), offset, length)
         let old_buffer: Vec<u8> = self.read(object_name.clone())?;
