@@ -177,7 +177,7 @@ impl NBDServer {
         };
         match req_type {
             proto::NBD_CMD_READ => { // 0
-                log::debug!("NBD_CMD_READ");
+                log::trace!("NBD_CMD_READ");
                 log::trace!("\t-->flags:{}, handle: {}, offset: {}, datalen: {}", flags, handle, offset, datalen);
                 let session = self.session.as_ref().unwrap();
                 log::trace!("STRUCTURED REPLY: {}", structured_reply);
@@ -207,7 +207,7 @@ impl NBDServer {
                         );
                     }
                 } else {
-                    log::debug!("NBD_CMD_READ ok!");
+                    log::trace!("NBD_CMD_READ ok!");
                     if structured_reply == true {
                         NBDServer::structured_reply(
                             clone_stream!(socket),
@@ -224,7 +224,7 @@ impl NBDServer {
                 }
             }
             proto::NBD_CMD_WRITE => { // 1
-                log::debug!("NBD_CMD_WRITE");
+                log::trace!("NBD_CMD_WRITE");
                 log::trace!("\t-->flags:{}, handle: {}, offset: {}, datalen: {}", flags, handle, offset, datalen);
                 let mut data = vec![0; datalen as usize];
                 match clone_stream!(socket).read_exact(&mut data) {
@@ -258,7 +258,7 @@ impl NBDServer {
                                 );
                             }
                         } else {
-                            log::debug!("NBD_CMD_WRITE ok!");
+                            log::trace!("NBD_CMD_WRITE ok!");
 
                             if structured_reply == true {
                                 NBDServer::structured_reply(
