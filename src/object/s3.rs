@@ -254,6 +254,10 @@ impl SimpleObjectStorage for S3Backend {
         // Noop
         Ok(Propagation::Noop)
     }
+
+    fn close(&mut self) {
+        log::debug!("object::s3::close");
+    }
 }
 
 impl PartialAccessObjectStorage for S3Backend {

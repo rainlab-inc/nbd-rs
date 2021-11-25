@@ -187,6 +187,10 @@ impl SimpleObjectStorage for FileBackend {
         // mut_pointer.flush();
         Ok(Propagation::Guaranteed)
     }
+
+    fn close(&mut self) {
+        log::debug!("object::file::close");
+    }
 }
 
 impl PartialAccessObjectStorage for FileBackend {

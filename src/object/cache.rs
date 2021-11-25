@@ -1,9 +1,16 @@
 use std::{
     io::{Error, ErrorKind},
-    time::{Instant},
+    time::{Instant, Duration},
     collections::{HashMap},
     rc::{Rc},
     cell::{RefCell},
+    ops::{Deref, DerefMut},
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        mpsc::{Sender, channel},
+        Arc, RwLock, Mutex
+    },
+    thread,
 };
 use url::{Url};
 
@@ -31,13 +38,72 @@ pub struct CachedObject {
     last_persist: Option<Instant>,
 }
 
+struct CacheValRef(Arc<RwLock<CachedObject>>);
+type CacheMap = HashMap<String, CacheValRef>;
+struct CacheMapRef(Arc<RwLock<CacheMap>>);
+
+impl CacheValRef {
+    pub fn new(obj: CachedObject) -> CacheValRef {
+        CacheValRef(Arc::new(
+            RwLock::new(obj)
+        ))
+    }
+}
+
+impl Deref for CacheValRef {
+    type Target = Arc<RwLock<CachedObject>>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl Clone for CacheValRef {
+    fn clone(&self) -> CacheValRef {
+        CacheValRef(Arc::clone(&self.0))
+    }
+}
+
+// impl DerefMut for CacheValRef {
+//     fn deref_mut(&mut self) -> Self::Target {
+//         self.0.write().unwrap()
+//     }
+// }
+
+impl CacheMapRef {
+    pub fn new() -> CacheMapRef {
+        CacheMapRef(Arc::new(
+            RwLock::new(
+                HashMap::<String, CacheValRef>::new()
+            )
+        ))
+        // RefCell::<HashMap<String, Rc<RefCell<CachedObject>>>>::new(
+        //     HashMap::<String, Rc<RefCell<CachedObject>>>::new()
+        // )
+    }
+}
+
+impl Clone for CacheMapRef {
+    fn clone(&self) -> CacheMapRef {
+        CacheMapRef(Arc::clone(&self.0))
+    }
+}
+
+impl Deref for CacheMapRef {
+    type Target = Arc<RwLock<CacheMap>>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 pub struct CacheBackend {
     config: String,
-    backend: Box<dyn ObjectStorage>,
-    cache: RefCell<HashMap<String, Rc<RefCell<CachedObject>>>>,
-    mem_usage: RefCell<usize>,
+    backend: Arc<Mutex<Box<dyn ObjectStorage>>>,
+    cache: CacheMapRef,
+    mem_usage: Arc<AtomicUsize>,
     mem_limit: usize,
     max_stall_secs: u16,
+    bgthread_jh: Option<thread::JoinHandle<()>>,
+    sender: Option<Sender<bool>>
 }
 
 impl CacheBackend {
@@ -51,16 +117,118 @@ impl CacheBackend {
         //   mem_limit = 64M
         //   max_stall = 15s
 
-        CacheBackend {
+        let mut obj = CacheBackend {
             config: config.clone(),
-            backend: object_storage_with_config(config).unwrap(),
-            cache: RefCell::<HashMap<String, Rc<RefCell<CachedObject>>>>::new(
-                HashMap::<String, Rc<RefCell<CachedObject>>>::new()
-            ),
-            mem_usage: RefCell::<usize>::new(0),
+            backend: Arc::new(Mutex::new(object_storage_with_config(config).unwrap())),
+            cache: CacheMapRef::new(),
+            mem_usage: Arc::new(AtomicUsize::new(0)),
             mem_limit: 64 * 1024 * 1024,
             max_stall_secs: 15, // persist things to disk after 15sec max
+            bgthread_jh: None,
+            sender: None,
+        };
+        obj.start_persister();
+        obj
+    }
+
+    // TODO fn drop: send quit req to bgthread and join that here
+
+    fn start_persister(&mut self) {
+        let cache_ref = self.cache.clone();
+        let mem_limit = self.mem_limit;
+        let mem_usage = Arc::clone(&self.mem_usage);
+        let (send, rcv) = channel();
+        self.sender = Some(send);
+
+        self.bgthread_jh = Some(thread::Builder::new()
+            .spawn(move || {
+                loop {
+                    let cache = cache_ref.read().unwrap();
+                    let total_pages = cache.len();
+                    let oldest_unwritten_page = cache.iter()
+                        .filter(|(k, cref)| {
+                            let c = cref.read().unwrap();
+                            c.writes > c.persists
+                        }) // only not-persisted ones
+                        .min_by(|(xk, xref), (yk, yref)| {
+                            let x = xref.read().unwrap();
+                            let y = yref.read().unwrap();
+                            x.last_write.cmp(&y.last_write)
+                        });
+                    drop(cache);
+                    if oldest_unwritten_page.is_some() {
+                        let cache_obj = oldest_unwritten_page.unwrap();
+                        let backend = self.backend.lock().unwrap();
+                        backend.write(cache_obj.0, &cache_obj.1.data.clone());
+                        backend.persist_object(cache_obj.0);
+                        cache_obj.1.persists += 1;
+                        cache_obj.1.last_persists = Some(Instant::now());
+                    }
+                    log::debug!("mem_usage: {}, {} pages", mem_usage.load(Ordering::Acquire), total_pages);
+                    //thread::sleep(Duration::from_millis(5000));
+                    match rcv.recv_timeout(Duration::from_millis(5000)).unwrap_or(true) {
+                        true => continue,
+                        false => break
+                    };
+                }
+                // LOOP: wait until one of; timeout, chan data (new_item|hurry_up|quit)
+            })
+            .unwrap());
+    }
+
+    fn least_important_cache_key(cache_ref: CacheMapRef) -> Option<String> {
+        let cache = cache_ref.read().unwrap();
+        let kvpair = cache
+            .iter()
+            .filter(|(k, cref)| {
+                let c = cref.read().unwrap();
+                c.writes <= c.persists
+            }) // only already persisted ones
+            .min_by(|(xk, xref), (yk, yref)| {
+                let x = xref.read().unwrap();
+                let y = yref.read().unwrap();
+                x.last_read.cmp(&y.last_read)
+            });
+
+        if kvpair.is_some() {
+            let (k, vref) = kvpair.unwrap();
+            return Some(k.to_string());
         }
+
+        return None;
+    }
+
+    fn get_cache(&self, key: String) -> Option<CacheValRef> {
+        let cache = self.cache.read().unwrap();
+        let cache_entry = cache.get_key_value(&key);
+        if cache_entry.is_none() {
+            return None;
+        }
+
+        let (kref, cref) = cache_entry.unwrap();
+        Some(cref.clone())
+    }
+
+    fn ensure_free_memory(&self, bytes: usize) -> Result<(), Error> {
+        while self.mem_usage.load(Ordering::Acquire) + bytes >= self.mem_limit {
+            // .. free least important object
+            let victim_key_res = CacheBackend::least_important_cache_key(self.cache.clone());
+            if victim_key_res.is_none() {
+                // TODO: Consider blocking here and persist some write cache, to make space.
+                return Err(Error::new(ErrorKind::Other, "Cannot free memory"));
+            }
+
+            let victim_key = victim_key_res.unwrap();
+            let cref = self.get_cache(victim_key.clone()).unwrap();
+            let c = cref.read().unwrap();
+
+            self.mem_usage.fetch_sub(c.size, Ordering::Release);
+            log::debug!("mem: removing object {}, mem_usage to be: {}", victim_key.clone(), self.mem_usage.load(Ordering::Acquire));
+            let mut cache = self.cache.write().unwrap();
+            cache.remove(&victim_key);
+        }
+
+        Ok(())
     }
 }
 
@@ -71,7 +239,7 @@ impl SimpleObjectStorage for CacheBackend {
     }
 
     fn exists(&self, object_name: String) -> Result<bool, Error> {
-        let cache = self.cache.borrow();
+        let cache = self.cache.read().unwrap();
         if cache.contains_key(&object_name.clone()) {
             log::trace!("exists: hit");
             return Ok(true);
@@ -79,22 +247,24 @@ impl SimpleObjectStorage for CacheBackend {
 
         log::trace!("exists: miss");
         // TODO: Cache exists|not status as well?
-        self.backend.exists(object_name)
+        self.backend.lock().unwrap().exists(object_name)
     }
 
     fn read(&self, object_name: String) -> Result<Vec<u8>, Error> {
-        let mut cache = self.cache.borrow_mut();
+        let cache = self.cache.read().unwrap();
         let cached_obj_ref = cache.get_key_value(&object_name.clone());
         if cached_obj_ref.is_some() {
             log::trace!("read: hit");
-            let mut cached_obj = cached_obj_ref.unwrap().1.borrow_mut();
+            let mut cached_obj = cached_obj_ref.unwrap().1.write().unwrap();
             cached_obj.reads += 1;
             cached_obj.last_read = Some(Instant::now());
             return Ok(cached_obj.data.clone());
         }
+        drop(cached_obj_ref);
+        drop(cache);
 
         log::trace!("read: miss");
-        let data = self.backend.read(object_name.clone())?;
+        let data = self.backend.lock().unwrap().read(object_name.clone())?;
         let cached_object = CachedObject {
             data: data.clone(),
             size: data.len(),
@@ -106,23 +276,25 @@ impl SimpleObjectStorage for CacheBackend {
             last_write: None,
             last_persist: None,
         };
-        let mut mem_usage = self.mem_usage.borrow_mut();
-        *mem_usage += cached_object.size;
-        log::debug!("mem_usage: {}", mem_usage);
-        cache.insert(object_name.clone(), Rc::new(RefCell::new(cached_object)));
+
+        self.ensure_free_memory(cached_object.size);
+        let mut cache = self.cache.write().unwrap();
+        self.mem_usage.fetch_add(cached_object.size, Ordering::Release);
+        cache.insert(object_name.clone(), CacheValRef::new(cached_object));
         Ok(data)
     }
 
     fn write(&self, object_name: String, data: &[u8]) -> Result<Propagation, Error> {
-        let mut cache = self.cache.borrow_mut();
+        let mut cache = self.cache.write().unwrap();
         let cached_obj_ref = cache.get_key_value(&object_name.clone());
         if cached_obj_ref.is_some() {
             log::trace!("write: hit");
-            let mut cached_obj = cached_obj_ref.unwrap().1.borrow_mut();
+            let mut cached_obj = cached_obj_ref.unwrap().1.write().unwrap();
             cached_obj.writes += 1;
             cached_obj.last_write = Some(Instant::now());
             cached_obj.data = data.to_vec();
-            log::debug!("mem_usage: {}", self.mem_usage.borrow());
+            log::debug!("mem_usage: {}", self.mem_usage.load(Ordering::Acquire));
+            self.sender.as_ref().unwrap().send(true);
             return Ok(Propagation::Queued);
         }
 
@@ -138,47 +310,45 @@ impl SimpleObjectStorage for CacheBackend {
             last_write: Some(Instant::now()),
             last_persist: None,
         };
-        let mut mem_usage = self.mem_usage.borrow_mut();
         // TODO: Check if mem limit allows this, otherwise
         // * block until it allows, and pressure cache purge
-        *mem_usage += cached_object.size;
-        log::debug!("mem_usage: {}", mem_usage);
-        cache.insert(object_name.clone(), Rc::new(RefCell::new(cached_object)));
-
+        self.mem_usage.fetch_add(cached_object.size, Ordering::Release);
+        log::debug!("mem_usage: {}", self.mem_usage.load(Ordering::Acquire));
+        cache.insert(object_name.clone(), CacheValRef::new(cached_object));
+        self.sender.as_ref().unwrap().send(true);
         Ok(Propagation::Queued)
     }
 
     fn delete(&self, object_name: String) -> Result<Propagation, Error> {
-        let mut cache = self.cache.borrow_mut();
+        let mut cache = self.cache.write().unwrap();
         let cached_obj_ref = cache.get_key_value(&object_name.clone());
         if cached_obj_ref.is_some() {
-            let cached_obj = cached_obj_ref.unwrap().1.borrow();
-            let mut mem_usage = self.mem_usage.borrow_mut();
-            *mem_usage -= cached_obj.size;
-            log::debug!("mem_usage: {}", mem_usage);
+            let cached_obj = cached_obj_ref.unwrap().1.read().unwrap();
+            self.mem_usage.fetch_sub(cached_obj.size, Ordering::Release);
+            log::debug!("mem_usage: {}", self.mem_usage.load(Ordering::Acquire));
         }
         cache.remove(&object_name.clone());
 
-        self.backend.delete(object_name.clone())
+        self.backend.lock().unwrap().delete(object_name.clone())
     }
 
     fn get_size(&self, object_name: String) -> Result<u64, Error> {
-        let cache = self.cache.borrow();
+        let cache = self.cache.read().unwrap();
         let cached_obj_ref = cache.get_key_value(&object_name.clone());
         if cached_obj_ref.is_some() {
             log::trace!("size: hit");
-            let cached_obj = cached_obj_ref.unwrap().1.borrow();
+            let cached_obj = cached_obj_ref.unwrap().1.read().unwrap();
             return Ok(cached_obj.size as u64);
         }
 
         log::trace!("size: miss");
         // TODO: cache this(size only) as well??
-        self.backend.get_size(object_name.clone())
+        self.backend.lock().unwrap().get_size(object_name.clone())
     }
 
     fn start_operations_on_object(&self, object_name: String) -> Result<(), Error> {
         // increase
-        let mut cache = self.cache.borrow_mut();
+        let mut cache = self.cache.write().unwrap();
         if !cache.contains_key(&object_name.clone()) {
             // for side effect;
             self.read(object_name.clone())?;
@@ -186,30 +356,31 @@ impl SimpleObjectStorage for CacheBackend {
 
         let cached_obj_ref = cache.get_key_value(&object_name.clone());
         if cached_obj_ref.is_some() {
-            let mut cached_obj = cached_obj_ref.unwrap().1.borrow_mut();
+            let mut cached_obj = cached_obj_ref.unwrap().1.write().unwrap();
             cached_obj.keep += 1;
         }
 
-        self.backend.start_operations_on_object(object_name.clone())
+        self.backend.lock().unwrap().start_operations_on_object(object_name.clone())
     }
 
     fn end_operations_on_object(&self, object_name: String) -> Result<(), Error> {
         // decrease
-        let mut cache = self.cache.borrow_mut();
+        let mut cache = self.cache.write().unwrap();
         let cached_obj_ref = cache.get_key_value(&object_name.clone());
         if cached_obj_ref.is_some() {
-            let mut cached_obj = cached_obj_ref.unwrap().1.borrow_mut();
+            let mut cached_obj = cached_obj_ref.unwrap().1.write().unwrap();
             cached_obj.keep -= 1;
         }
 
-        self.backend.end_operations_on_object(object_name.clone())
+        self.backend.lock().unwrap().end_operations_on_object(object_name.clone())
     }
 
     fn persist_object(&self, object_name: String) -> Result<Propagation, Error> {
-        let mut cache = self.cache.borrow_mut();
+        let mut cache = self.cache.write().unwrap();
         let cached_obj_ref = cache.get_key_value(&object_name.clone());
+        let backend = self.backend.lock().unwrap();
         if cached_obj_ref.is_some() {
-            let mut cached_obj = cached_obj_ref.unwrap().1.borrow_mut();
+            let mut cached_obj = cached_obj_ref.unwrap().1.write().unwrap();
 
             // already persisted
             if cached_obj.persists == cached_obj.writes {
@@ -217,11 +388,11 @@ impl SimpleObjectStorage for CacheBackend {
             }
 
             log::debug!("persist: hit");
-            let write_propagation = self.backend.write(object_name.clone(), &cached_obj.data.clone())?;
+            let write_propagation = backend.write(object_name.clone(), &cached_obj.data.clone())?;
             cached_obj.persists = cached_obj.writes;
             cached_obj.last_persist = Some(Instant::now());
 
-            let persist_propagation = self.backend.persist_object(object_name.clone())?;
+            let persist_propagation = backend.persist_object(object_name.clone())?;
             if (persist_propagation as u8) > (write_propagation as u8) {
                 return Ok(persist_propagation);
             }
@@ -229,18 +400,27 @@ impl SimpleObjectStorage for CacheBackend {
             return Ok(write_propagation);
         }
 
-        self.backend.persist_object(object_name.clone())
+        backend.persist_object(object_name.clone())
+    }
+
+    fn close(&mut self) {
+        log::debug!("object::cache::close");
+        self.sender.as_ref().unwrap().send(false);
+        match self.bgthread_jh.take() {
+            Some(bgthread) => bgthread.join().unwrap(),
+            None => log::debug!("no thread!")
+        };
     }
 }
 
 impl PartialAccessObjectStorage for CacheBackend {
 
     fn partial_read(&self, object_name: String, offset: u64, length: usize) -> Result<Vec<u8>, Error> {
-        let cache = self.cache.borrow();
+        let cache = self.cache.write().unwrap();
         let cached_obj_ref = cache.get_key_value(&object_name.clone());
         if cached_obj_ref.is_some() {
             log::trace!("partial_read: hit");
-            let cached_obj = cached_obj_ref.unwrap().1.borrow();
+            let cached_obj = cached_obj_ref.unwrap().1.read().unwrap();
             let data: Vec<u8> = cached_obj.data.clone();
             let slice: Vec<u8> = data[(offset as usize)..((offset as usize) + length)].to_vec();
             return Ok(slice);
@@ -270,7 +450,7 @@ impl PartialAccessObjectStorage for CacheBackend {
     }
 
     fn partial_write(&self, object_name: String, offset: u64, length: usize, data: &[u8]) -> Result<Propagation, Error> {
-        let cache = self.cache.borrow();
+        let cache = self.cache.read().unwrap();
         if !cache.contains_key(&object_name.clone()) {
             // code below commented out, because if we proxy this to backend,
             // and if the backend has an ugly workaround for this,
@@ -296,10 +476,10 @@ impl PartialAccessObjectStorage for CacheBackend {
             drop(cache);
         }
 
-        let cache = self.cache.borrow();
+        let cache = self.cache.read().unwrap();
         log::trace!("partial_write: emulate");
         let cached_obj_ref = cache.get_key_value(&object_name.clone());
-        let cached_obj = cached_obj_ref.unwrap().1.borrow();
+        let cached_obj = cached_obj_ref.unwrap().1.read().unwrap();
         let old_buffer: Vec<u8> = cached_obj.data.clone();
         drop(cached_obj);
         drop(cached_obj_ref);

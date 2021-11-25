@@ -63,5 +63,6 @@ impl BlockStorage for RawBlock {
         self.object_storage
             .end_operations_on_object(self.name.clone())
             .expect("Could not close object properly");
+        self.object_storage.close();
     }
 }

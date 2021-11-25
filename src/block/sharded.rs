@@ -216,5 +216,6 @@ impl BlockStorage for ShardedBlock {
 
     fn close(&mut self) {
         log::debug!("storage::close");
+        self.object_storage.close();
     }
 }
