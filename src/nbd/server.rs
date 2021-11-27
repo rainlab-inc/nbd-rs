@@ -163,6 +163,11 @@ impl NBDServer {
             }
         }
         log::info!("Transmission ended");
+        let mut session = self.session.take().unwrap();
+        let driver = session.driver.take();
+        if driver.is_some() {
+            driver.unwrap().close();
+        }
     }
 
     fn handle_request(&mut self, mut socket: TcpStream) {
