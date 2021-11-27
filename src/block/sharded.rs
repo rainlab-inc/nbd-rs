@@ -80,7 +80,7 @@ impl BlockStorage for ShardedBlock {
             self.shard_index(offset + length as u64)
         };
 
-        log::debug!("storage::read(start: {}, end: {})", start, end);
+        log::trace!("storage::read(start: {}, end: {})", start, end);
         for i in start..=end {
             log::trace!("storage::read(iteration: {})", i);
             let shard_name = self.shard_name(i);
