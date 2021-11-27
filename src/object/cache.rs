@@ -2,9 +2,7 @@ use std::{
     io::{Error, ErrorKind},
     time::{Instant, Duration},
     collections::{HashMap},
-    rc::{Rc},
-    cell::{RefCell},
-    ops::{Deref, DerefMut},
+    ops::{Deref},
     sync::{
         atomic::{AtomicUsize, Ordering},
         mpsc::{Sender, channel},
@@ -97,11 +95,12 @@ impl Deref for CacheMapRef {
 
 pub struct CacheBackend {
     config: String,
-    backend: Arc<Mutex<Box<dyn ObjectStorage>>>,
+    read_backend: Arc<Mutex<Box<dyn ObjectStorage>>>,
+    write_backend: Arc<Mutex<Box<dyn ObjectStorage>>>,
     cache: CacheMapRef,
     mem_usage: Arc<AtomicUsize>,
     mem_limit: usize,
-    max_stall_secs: u16,
+    stall_secs: u16,
     bgthread_jh: Option<thread::JoinHandle<()>>,
     sender: Option<Sender<bool>>
 }
@@ -119,11 +118,12 @@ impl CacheBackend {
 
         let mut obj = CacheBackend {
             config: config.clone(),
-            backend: Arc::new(Mutex::new(object_storage_with_config(config).unwrap())),
+            read_backend: Arc::new(Mutex::new(object_storage_with_config(config.clone()).unwrap())),
+            write_backend: Arc::new(Mutex::new(object_storage_with_config(config.clone()).unwrap())),
             cache: CacheMapRef::new(),
             mem_usage: Arc::new(AtomicUsize::new(0)),
-            mem_limit: 64 * 1024 * 1024,
-            max_stall_secs: 15, // persist things to disk after 15sec max
+            mem_limit: 128 * 1024 * 1024,
+            stall_secs: 3, // persist things to disk after 3 seconds
             bgthread_jh: None,
             sender: None,
         };
@@ -136,8 +136,9 @@ impl CacheBackend {
     fn start_persister(&mut self) {
         let cache_ref = self.cache.clone();
         let mem_limit = self.mem_limit;
+        let stall_secs = self.stall_secs;
         let mem_usage = Arc::clone(&self.mem_usage);
-        let backend = Arc::clone(&self.backend);
+        let write_backend = Arc::clone(&self.write_backend);
         let (send, rcv) = channel();
         self.sender = Some(send);
 
@@ -156,12 +157,12 @@ impl CacheBackend {
                     let oldest_unwritten_page = cache.iter()
                         .filter(|(k, cref)| {
                             let c = cref.read().unwrap();
-                            c.writes > c.persists
-                        }) // only not-persisted ones
+                            c.writes > c.persists && c.last_write.unwrap().elapsed() > Duration::from_secs(stall_secs.into())
+                        }) // only not-persisted ones, after `stall_secs`
                         .min_by(|(xk, xref), (yk, yref)| {
                             let x = xref.read().unwrap();
                             let y = yref.read().unwrap();
-                            x.last_write.cmp(&y.last_write)
+                            x.last_write.unwrap().cmp(&y.last_write.unwrap())
                         });
 
                     // skip
@@ -170,7 +171,7 @@ impl CacheBackend {
                         drop(cache);
                         //thread::sleep(Duration::from_millis(5000));
                         log::debug!("mem_usage: {}, {} pages, {} unwritten", mem_usage.load(Ordering::Acquire), total_pages, unwritten_pages);
-                        match rcv.recv_timeout(Duration::from_millis(5000)).unwrap_or(true) {
+                        match rcv.recv_timeout(Duration::from_secs(5)).unwrap_or(true) {
                             true => continue,
                             false => break
                         };
@@ -183,14 +184,21 @@ impl CacheBackend {
                     drop(cache_kp);
                     drop(cache);
 
-                    let backend = backend.lock().unwrap();
-                    backend.write(obj_name.clone(), &cache_obj.data.clone());
-                    backend.persist_object(obj_name.clone());
-                    cache_obj.persists += 1;
-                    cache_obj.last_persist = Some(Instant::now());
+                    let backend = write_backend.lock().unwrap();
+                    let write_res = backend.write(obj_name.clone(), &cache_obj.data.clone());
+                    if write_res.is_ok() {
+                        let persist_res = backend.persist_object(obj_name.clone());
+                        if persist_res.is_ok() {
+                            cache_obj.persists = cache_obj.writes;
+                            cache_obj.last_persist = Some(Instant::now());
+                        } else {
+                            log::warn!("background persist (after write) failed");
+                        }
+                        log::debug!("mem_usage: {}, left {} pages, {} unwritten, wrote 1 page", mem_usage.load(Ordering::Acquire), total_pages, unwritten_pages - 1);
+                    } else {
+                        log::warn!("background write failed, will retry");
+                    }
                     drop(backend);
-
-                    log::debug!("mem_usage: {}, left {} pages, {} unwritten, wrote 1 page", mem_usage.load(Ordering::Acquire), total_pages, unwritten_pages - 1);
                 }
             })
             .unwrap());
@@ -207,7 +215,14 @@ impl CacheBackend {
             .min_by(|(xk, xref), (yk, yref)| {
                 let x = xref.read().unwrap();
                 let y = yref.read().unwrap();
-                x.last_read.cmp(&y.last_read)
+                if x.last_read.is_none() {
+                    return std::cmp::Ordering::Less;
+                }
+                if y.last_read.is_none() {
+                    return std::cmp::Ordering::Greater;
+                }
+
+                x.last_read.unwrap().cmp(&y.last_read.unwrap())
             });
 
         if kvpair.is_some() {
@@ -267,7 +282,7 @@ impl SimpleObjectStorage for CacheBackend {
 
         log::trace!("exists: miss");
         // TODO: Cache exists|not status as well?
-        self.backend.lock().unwrap().exists(object_name)
+        self.read_backend.lock().unwrap().exists(object_name)
     }
 
     fn read(&self, object_name: String) -> Result<Vec<u8>, Error> {
@@ -284,7 +299,7 @@ impl SimpleObjectStorage for CacheBackend {
         drop(cache);
 
         log::trace!("read: miss");
-        let data = self.backend.lock().unwrap().read(object_name.clone())?;
+        let data = self.read_backend.lock().unwrap().read(object_name.clone())?;
         let cached_object = CachedObject {
             data: data.clone(),
             size: data.len(),
@@ -349,7 +364,7 @@ impl SimpleObjectStorage for CacheBackend {
         }
         cache.remove(&object_name.clone());
 
-        self.backend.lock().unwrap().delete(object_name.clone())
+        self.write_backend.lock().unwrap().delete(object_name.clone())
     }
 
     fn get_size(&self, object_name: String) -> Result<u64, Error> {
@@ -363,7 +378,7 @@ impl SimpleObjectStorage for CacheBackend {
 
         log::trace!("size: miss");
         // TODO: cache this(size only) as well??
-        self.backend.lock().unwrap().get_size(object_name.clone())
+        self.read_backend.lock().unwrap().get_size(object_name.clone())
     }
 
     fn start_operations_on_object(&self, object_name: String) -> Result<(), Error> {
@@ -380,7 +395,7 @@ impl SimpleObjectStorage for CacheBackend {
             cached_obj.keep += 1;
         }
 
-        self.backend.lock().unwrap().start_operations_on_object(object_name.clone())
+        self.write_backend.lock().unwrap().start_operations_on_object(object_name.clone())
     }
 
     fn end_operations_on_object(&self, object_name: String) -> Result<(), Error> {
@@ -392,13 +407,13 @@ impl SimpleObjectStorage for CacheBackend {
             cached_obj.keep -= 1;
         }
 
-        self.backend.lock().unwrap().end_operations_on_object(object_name.clone())
+        self.write_backend.lock().unwrap().end_operations_on_object(object_name.clone())
     }
 
     fn persist_object(&self, object_name: String) -> Result<Propagation, Error> {
         let mut cache = self.cache.write().unwrap();
         let cached_obj_ref = cache.get_key_value(&object_name.clone());
-        let backend = self.backend.lock().unwrap();
+        let backend = self.write_backend.lock().unwrap();
         if cached_obj_ref.is_some() {
             let mut cached_obj = cached_obj_ref.unwrap().1.write().unwrap();
 
@@ -449,7 +464,7 @@ impl PartialAccessObjectStorage for CacheBackend {
 
         // // not cached; try backend
         log::trace!("partial_read: miss");
-        // let backend_read_res = self.backend.partial_read(object_name.clone(), offset, length);
+        // let backend_read_res = self.read_backend.partial_read(object_name.clone(), offset, length);
         // if backend_read_res.is_ok() {
         //     return Ok(backend_read_res.unwrap());
         // }
@@ -479,7 +494,7 @@ impl PartialAccessObjectStorage for CacheBackend {
 
             // log::trace!("partial_write: miss -> proxy");
             // // try proxy
-            // let backend_write_res = self.backend.partial_write(object_name.clone(), offset, length, data);
+            // let backend_write_res = self.write_backend.partial_write(object_name.clone(), offset, length, data);
             // if backend_write_res.is_ok() {
             //     return backend_write_res;
             // }
