@@ -137,6 +137,7 @@ impl CacheBackend {
         let cache_ref = self.cache.clone();
         let mem_limit = self.mem_limit;
         let mem_usage = Arc::clone(&self.mem_usage);
+        let backend = Arc::clone(&self.backend);
         let (send, rcv) = channel();
         self.sender = Some(send);
 
@@ -145,6 +146,13 @@ impl CacheBackend {
                 loop {
                     let cache = cache_ref.read().unwrap();
                     let total_pages = cache.len();
+                    let unwritten_pages = cache.iter()
+                        .filter(|(k, cref)| {
+                            let c = cref.read().unwrap();
+                            c.writes > c.persists
+                        }) // only not-persisted ones
+                        .count();
+
                     let oldest_unwritten_page = cache.iter()
                         .filter(|(k, cref)| {
                             let c = cref.read().unwrap();
@@ -155,23 +163,35 @@ impl CacheBackend {
                             let y = yref.read().unwrap();
                             x.last_write.cmp(&y.last_write)
                         });
-                    drop(cache);
-                    if oldest_unwritten_page.is_some() {
-                        let cache_obj = oldest_unwritten_page.unwrap();
-                        let backend = self.backend.lock().unwrap();
-                        backend.write(cache_obj.0, &cache_obj.1.data.clone());
-                        backend.persist_object(cache_obj.0);
-                        cache_obj.1.persists += 1;
-                        cache_obj.1.last_persists = Some(Instant::now());
+
+                    // skip
+                    if oldest_unwritten_page.is_none() {
+                        drop(oldest_unwritten_page);
+                        drop(cache);
+                        //thread::sleep(Duration::from_millis(5000));
+                        log::debug!("mem_usage: {}, {} pages, {} unwritten", mem_usage.load(Ordering::Acquire), total_pages, unwritten_pages);
+                        match rcv.recv_timeout(Duration::from_millis(5000)).unwrap_or(true) {
+                            true => continue,
+                            false => break
+                        };
                     }
-                    log::debug!("mem_usage: {}, {} pages", mem_usage.load(Ordering::Acquire), total_pages);
-                    //thread::sleep(Duration::from_millis(5000));
-                    match rcv.recv_timeout(Duration::from_millis(5000)).unwrap_or(true) {
-                        true => continue,
-                        false => break
-                    };
+
+                    let cache_kp = oldest_unwritten_page.unwrap();
+                    let obj_name = cache_kp.0.to_string();
+                    let obj_ref_clone = Arc::clone(cache_kp.1);
+                    let mut cache_obj = obj_ref_clone.write().unwrap();
+                    drop(cache_kp);
+                    drop(cache);
+
+                    let backend = backend.lock().unwrap();
+                    backend.write(obj_name.clone(), &cache_obj.data.clone());
+                    backend.persist_object(obj_name.clone());
+                    cache_obj.persists += 1;
+                    cache_obj.last_persist = Some(Instant::now());
+                    drop(backend);
+
+                    log::debug!("mem_usage: {}, left {} pages, {} unwritten, wrote 1 page", mem_usage.load(Ordering::Acquire), total_pages, unwritten_pages - 1);
                 }
-                // LOOP: wait until one of; timeout, chan data (new_item|hurry_up|quit)
             })
             .unwrap());
     }

@@ -63,4 +63,4 @@ pub trait StreamingPartialAccessObjectStorage {
     }
 }
 
-pub trait ObjectStorage: SimpleObjectStorage + PartialAccessObjectStorage + StreamingObjectStorage + StreamingPartialAccessObjectStorage {}
+pub trait ObjectStorage: SimpleObjectStorage + PartialAccessObjectStorage + StreamingObjectStorage + StreamingPartialAccessObjectStorage + Send {}
