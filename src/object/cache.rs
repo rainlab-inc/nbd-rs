@@ -267,6 +267,33 @@ impl CacheBackend {
     }
 }
 
+fn retry<F, T>(mut op: F) -> Result<T, Error>
+where
+    F: FnMut() -> Result<T, Error>,
+{
+    let mut retries = 3;
+    loop {
+        let res = op();
+        if res.is_ok() {
+            return res;
+        }
+
+        let err = res.err().unwrap();
+        // only retry for 'ErrorKind::Other'
+        if err.kind() != ErrorKind::Other {
+            return Err(err);
+        }
+
+        thread::sleep(Duration::from_secs(1));
+        retries -= 1;
+        if retries == 0 {
+            return Err(err);
+        }
+
+        log::warn!("retrying");
+    }
+}
+
 impl SimpleObjectStorage for CacheBackend {
     fn init(&mut self, conn_str: String) {
         // .. noop
@@ -282,7 +309,10 @@ impl SimpleObjectStorage for CacheBackend {
 
         log::trace!("exists: miss");
         // TODO: Cache exists|not status as well?
-        self.read_backend.lock().unwrap().exists(object_name)
+
+        retry(|| {
+            self.read_backend.lock().unwrap().exists(object_name.clone())
+        })
     }
 
     fn read(&self, object_name: String) -> Result<Vec<u8>, Error> {
@@ -299,7 +329,10 @@ impl SimpleObjectStorage for CacheBackend {
         drop(cache);
 
         log::trace!("read: miss");
-        let data = self.read_backend.lock().unwrap().read(object_name.clone())?;
+        let data = retry(|| {
+            self.read_backend.lock().unwrap().read(object_name.clone())
+        })?;
+
         let cached_object = CachedObject {
             data: data.clone(),
             size: data.len(),
@@ -328,7 +361,7 @@ impl SimpleObjectStorage for CacheBackend {
             cached_obj.writes += 1;
             cached_obj.last_write = Some(Instant::now());
             cached_obj.data = data.to_vec();
-            log::debug!("mem_usage: {}", self.mem_usage.load(Ordering::Acquire));
+            log::trace!("mem_usage: {}", self.mem_usage.load(Ordering::Acquire));
             self.sender.as_ref().unwrap().send(true);
             return Ok(Propagation::Queued);
         }
@@ -347,8 +380,9 @@ impl SimpleObjectStorage for CacheBackend {
         };
         // TODO: Check if mem limit allows this, otherwise
         // * block until it allows, and pressure cache purge
+        self.ensure_free_memory(cached_object.size);
         self.mem_usage.fetch_add(cached_object.size, Ordering::Release);
-        log::debug!("mem_usage: {}", self.mem_usage.load(Ordering::Acquire));
+        log::trace!("mem_usage: {}", self.mem_usage.load(Ordering::Acquire));
         cache.insert(object_name.clone(), CacheValRef::new(cached_object));
         self.sender.as_ref().unwrap().send(true);
         Ok(Propagation::Queued)
@@ -360,7 +394,7 @@ impl SimpleObjectStorage for CacheBackend {
         if cached_obj_ref.is_some() {
             let cached_obj = cached_obj_ref.unwrap().1.read().unwrap();
             self.mem_usage.fetch_sub(cached_obj.size, Ordering::Release);
-            log::debug!("mem_usage: {}", self.mem_usage.load(Ordering::Acquire));
+            log::trace!("mem_usage: {}", self.mem_usage.load(Ordering::Acquire));
         }
         cache.remove(&object_name.clone());
 
@@ -423,11 +457,16 @@ impl SimpleObjectStorage for CacheBackend {
             }
 
             log::debug!("persist: hit");
-            let write_propagation = backend.write(object_name.clone(), &cached_obj.data.clone())?;
+            let write_propagation = retry(|| {
+                backend.write(object_name.clone(), &cached_obj.data.clone())
+            })?;
             cached_obj.persists = cached_obj.writes;
             cached_obj.last_persist = Some(Instant::now());
 
-            let persist_propagation = backend.persist_object(object_name.clone())?;
+            let persist_propagation = retry(|| {
+                backend.persist_object(object_name.clone())
+            })?;
+
             if (persist_propagation as u8) > (write_propagation as u8) {
                 return Ok(persist_propagation);
             }
@@ -435,7 +474,7 @@ impl SimpleObjectStorage for CacheBackend {
             return Ok(write_propagation);
         }
 
-        backend.persist_object(object_name.clone())
+        retry(|| { backend.persist_object(object_name.clone()) })
     }
 
     fn close(&mut self) {
