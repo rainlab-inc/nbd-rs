@@ -175,6 +175,7 @@ impl BlockStorage for ShardedBlock {
             }
 
             written += write_len;
+            cur_offset += written;
             if (propagated as u8) >= (Propagation::Queued as u8) {
                 log::debug!("storage::write(iteration: {}, {})", cur_shard, propagated as u8);
             } else {
