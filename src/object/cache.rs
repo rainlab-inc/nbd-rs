@@ -417,7 +417,7 @@ impl SimpleObjectStorage for CacheBackend {
 
     fn start_operations_on_object(&self, object_name: String) -> Result<(), Error> {
         // increase
-        let mut cache = self.cache.write().unwrap();
+        let cache = self.cache.write().unwrap();
         if !cache.contains_key(&object_name.clone()) {
             // for side effect;
             self.read(object_name.clone())?;
@@ -434,7 +434,7 @@ impl SimpleObjectStorage for CacheBackend {
 
     fn end_operations_on_object(&self, object_name: String) -> Result<(), Error> {
         // decrease
-        let mut cache = self.cache.write().unwrap();
+        let cache = self.cache.write().unwrap();
         let cached_obj_ref = cache.get_key_value(&object_name.clone());
         if cached_obj_ref.is_some() {
             let mut cached_obj = cached_obj_ref.unwrap().1.write().unwrap();
@@ -445,7 +445,7 @@ impl SimpleObjectStorage for CacheBackend {
     }
 
     fn persist_object(&self, object_name: String) -> Result<Propagation, Error> {
-        let mut cache = self.cache.write().unwrap();
+        let cache = self.cache.write().unwrap();
         let cached_obj_ref = cache.get_key_value(&object_name.clone());
         let backend = self.write_backend.lock().unwrap();
         if cached_obj_ref.is_some() {

@@ -131,7 +131,7 @@ impl BlockStorage for ShardedBlock {
         let mut overall_propagation : Propagation = Propagation::Guaranteed;
 
         let mut cur_offset: usize = offset as usize;
-        let mut cur_shard = 0;
+        let mut cur_shard;
         let mut written: usize = 0;
         while written < length {
             cur_shard = self.shard_index(cur_offset as u64);
@@ -146,7 +146,7 @@ impl BlockStorage for ShardedBlock {
             let shard_name = self.shard_name(cur_shard);
 
             let slice = &data[written..(written + write_len)];
-            let mut propagated;
+            let propagated;
 
             // full write
             if write_len == self.shard_size as usize {
