@@ -3,7 +3,7 @@ use std::{
 };
 
 mod config;
-pub use self::config::storage_with_config;
+pub use self::config::object_storage_with_config;
 
 mod file;
 pub use self::file::FileBackend;
@@ -25,7 +25,7 @@ pub trait SimpleObjectStorage {
     // hints the object storage backend about long access on object, so the backend can do stuff like MMAP
     fn start_operations_on_object (&self, object_name: String) -> Result<(), Error>; // hints open  (or ++refCount==1?open)
     fn end_operations_on_object   (&self, object_name: String) -> Result<(), Error>; // hints close (or --refCount==0?close)
-    fn persist_object           (&self, object_name: String) -> Result<(), Error>; // hints flush
+    fn persist_object             (&self, object_name: String) -> Result<(), Error>; // hints flush
 }
 
 pub trait PartialAccessObjectStorage {

@@ -1,5 +1,5 @@
 use std::{
-    io::{Read, Error, ErrorKind},
+    io::{Error, ErrorKind},
 };
 use url::{Url};
 use log;
