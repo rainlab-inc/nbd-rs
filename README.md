@@ -43,17 +43,53 @@ Stretch goals
 cargo build
 ```
 
+The executable binary is located at `./target/debug/nbd-rs`.
+
+## Run
+
+Arguments:
+
+```
+[-e | --export EXPORT_NAME; DRIVER (raw, sharded); (cache)? CONN_STR]...
+  Examples:
+    -e my_export raw cache:file:/test/
+    -e my_export sharded cache:file:/test/
+    -e my_export raw cache:s3:http://username:password@${S3_HOST}/path
+    -e my_export raw s3:http://username:password@${S3_HOST}/path
+    -e my_export sharded s3:http://username:password@${S3_HOST}/path
+```
+
+Examples of export argument:
+
+```sh
+# Single Export (-e | --export), Raw, File, Log Level: DEBUG
+RUST_LOG=debug ./target/debug/nbd-rs --export my_raw_export raw file:/export/path/
+
+# Single Export, Sharded, S3, Log Level: TRACE
+RUST_LOG=trace ./target/debug/nbd-rs -e my_raw_export sharded s3:/export/path/
+
+# Single Export with Cache, Sharded, S3
+./target/debug/nbd-rs -e my_sharded_export sharded cache:s3:http://username:password@${S3_HOST}/path
+
+# Multiple Exports
+./target/debug/nbd-rs -e my_raw_export raw file:/export/path/ -e my_sharded_export sharded s3:http://username:password@${S3_HOST}/path
+```
+
+**NBD-rs will panic if no export has been specified.**
+
 ## Container
 
 ```sh
 docker build -t dkr.local/nbd-rs:dev .
-docker run -it --rm -p 10809:10809 dkr.local/nbd-rs:dev
+docker run -it --rm -p 10809:10809 dkr.local/nbd-rs:dev --export ${EXPORT_NAME} raw file:/test/
 ```
+
+> See `Run` section for more information on arguments.
 
 ## Test
 
 ```sh
-qemu-img info nbd:localhost:10809;exportname=default
+qemu-img info nbd:localhost:10809;exportname=${EXPORT_NAME}
 ```
 
 Write local image to NBD:
@@ -72,7 +108,7 @@ nbd-client -d /dev/nbd0
 Boot alpine with qemu:
 
 ```sh
-qemu-system-x86_64   -enable-kvm   -machine q35,accel=kvm   -m 2048  -drive file=nbd:127.0.0.1:10809:exportname=zeroimage,format=raw   -display gtk   -serial mon:stdio
+qemu-system-x86_64   -enable-kvm   -machine q35,accel=kvm   -m 2048  -drive file=nbd:127.0.0.1:10809:exportname=${EXPORT_NAME},format=raw   -display gtk   -serial mon:stdio
 ```
 
 ## COPYING
