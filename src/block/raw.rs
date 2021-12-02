@@ -6,6 +6,7 @@ use crate::{
     object::{ObjectStorage, object_storage_with_config},
     block::{BlockStorage},
 };
+use crate::util::Propagation;
 
 // Driver: RawBlock
 
@@ -48,12 +49,12 @@ impl BlockStorage for RawBlock {
             .partial_read(self.name.clone(), offset, length)
     }
 
-    fn write(&mut self, offset: u64, length: usize, data: &[u8]) -> Result<usize, Error> {
+    fn write(&mut self, offset: u64, length: usize, data: &[u8]) -> Result<Propagation, Error> {
         self.object_storage
             .partial_write(self.name.clone(), offset, length, data)
     }
 
-    fn flush(&mut self, offset: u64, length: usize) -> Result<(), Error> {
+    fn flush(&mut self, offset: u64, length: usize) -> Result<Propagation, Error> {
         self.object_storage
             .persist_object(self.name.clone())
     }

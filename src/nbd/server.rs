@@ -8,7 +8,6 @@ use std::{
 };
 
 use crate::{
-    block::{BlockStorage},
     nbd::{proto, NBDSession},
     util,
 };
@@ -178,7 +177,7 @@ impl NBDServer {
         };
         match req_type {
             proto::NBD_CMD_READ => { // 0
-                log::debug!("NBD_CMD_READ");
+                log::trace!("NBD_CMD_READ");
                 log::trace!("\t-->flags:{}, handle: {}, offset: {}, datalen: {}", flags, handle, offset, datalen);
                 let session = self.session.as_ref().unwrap();
                 log::trace!("STRUCTURED REPLY: {}", structured_reply);
@@ -208,7 +207,7 @@ impl NBDServer {
                         );
                     }
                 } else {
-                    log::debug!("NBD_CMD_READ ok!");
+                    log::trace!("NBD_CMD_READ ok!");
                     if structured_reply == true {
                         NBDServer::structured_reply(
                             clone_stream!(socket),
@@ -225,7 +224,7 @@ impl NBDServer {
                 }
             }
             proto::NBD_CMD_WRITE => { // 1
-                log::debug!("NBD_CMD_WRITE");
+                log::trace!("NBD_CMD_WRITE");
                 log::trace!("\t-->flags:{}, handle: {}, offset: {}, datalen: {}", flags, handle, offset, datalen);
                 let mut data = vec![0; datalen as usize];
                 match clone_stream!(socket).read_exact(&mut data) {
@@ -259,7 +258,7 @@ impl NBDServer {
                                 );
                             }
                         } else {
-                            log::debug!("NBD_CMD_WRITE ok!");
+                            log::trace!("NBD_CMD_WRITE ok!");
 
                             if structured_reply == true {
                                 NBDServer::structured_reply(
@@ -472,7 +471,7 @@ impl NBDServer {
         // FIXME! selected_export could be None. a proper error must be returned
         let selected_export = self.exports.get_key_value(&name.to_lowercase()).unwrap();
         let session = self.session.as_ref().unwrap();
-        let mut volume_size: u64 = 256 * 1024 * 1024;
+        let mut volume_size: u64;
         if session.driver.is_none() {
             let session = self.session.as_ref().unwrap();
             self.session = Some(NBDSession::new(

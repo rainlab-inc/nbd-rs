@@ -9,7 +9,7 @@ libc = "0.2"
 mmap-safe = "0.0.2"
 clap = "2.33"
 url = "2.2"
-rust-s3 = { version = "0.28", features = ["blocking"] }
+rust-s3 = { git = "https://git.rlab.io/forks/rust-crates/rust-s3.git", branch = "rlab/0.28-dev", features = ["blocking"] }
 env_logger = "0.9"
 log = "0.4"
 

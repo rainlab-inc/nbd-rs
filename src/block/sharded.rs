@@ -3,12 +3,13 @@ use std::{
     io::{Error},
 };
 
+use log;
+
 use crate::{
     object::{ObjectStorage, object_storage_with_config},
     block::{BlockStorage},
 };
-
-use log;
+use crate::util::Propagation;
 
 // Driver: ShardedBlock
 
@@ -119,7 +120,7 @@ impl BlockStorage for ShardedBlock {
         Ok(buffer)
     }
 
-    fn write(&mut self, offset: u64, length: usize, data: &[u8]) -> Result<usize, Error> {
+    fn write(&mut self, offset: u64, length: usize, data: &[u8]) -> Result<Propagation, Error> {
         // let start = self.shard_index(offset);
         // let end = if 0 == (offset + length as u64) % self.shard_size {
         //     self.shard_index(offset + length as u64) - 1
@@ -127,6 +128,8 @@ impl BlockStorage for ShardedBlock {
         //     self.shard_index(offset + length as u64)
         // };
         log::trace!("storage::write(offset: {}, length: {})", offset, length);
+        let mut overall_propagation : Propagation = Propagation::Guaranteed;
+
         let mut cur_offset: usize = offset as usize;
         let mut cur_shard = 0;
         let mut written: usize = 0;
@@ -143,11 +146,11 @@ impl BlockStorage for ShardedBlock {
             let shard_name = self.shard_name(cur_shard);
 
             let slice = &data[written..(written + write_len)];
+            let mut propagated = Propagation::Unsure;
 
             // full write
             if write_len == self.shard_size as usize {
-                self.object_storage.write(shard_name.clone(), slice)?;
-                written += write_len;
+                propagated = self.object_storage.write(shard_name.clone(), slice)?;
             }
 
             // new object
@@ -164,33 +167,51 @@ impl BlockStorage for ShardedBlock {
                     let tail_zeroes: Vec<u8> = vec![0_u8; (self.shard_size as usize - write_len - shard_offset) as usize];
                     buffer.extend_from_slice(&tail_zeroes);
                 }
-                self.object_storage.write(shard_name.clone(), &buffer)?;
-                written += write_len;
+                propagated = self.object_storage.write(shard_name.clone(), &buffer)?;
 
             // existing object, partial write
             } else {
-                self.object_storage.partial_write(shard_name.clone(), shard_offset as u64, write_len, slice)?;
+                propagated = self.object_storage.partial_write(shard_name.clone(), shard_offset as u64, write_len, slice)?;
             }
+
             written += write_len;
+            if (propagated as u8) >= (Propagation::Queued as u8) {
+                log::debug!("storage::write(iteration: {}, {})", cur_shard, propagated as u8);
+            } else {
+                log::trace!("storage::write(iteration: {}, {})", cur_shard, propagated as u8);
+            }
+            if (propagated as u8) < (overall_propagation as u8) {
+                overall_propagation = propagated;
+            }
         }
-        Ok(length)
+
+        Ok(overall_propagation)
     }
 
-    fn flush(&mut self, offset: u64, length: usize) -> Result<(), Error> {
+    fn flush(&mut self, offset: u64, length: usize) -> Result<Propagation, Error> {
         let start = self.shard_index(offset);
         let end = if 0 == (offset + length as u64) % self.shard_size {
             self.shard_index(offset + length as u64) - 1
         } else {
             self.shard_index(offset + length as u64)
         };
+
         log::debug!("storage::flush(start: {}, end: {})", start, end);
+        let mut overall_propagation : Propagation = Propagation::Guaranteed;
         for i in start..=end {
-            log::trace!("storage::flush(iteration: {})", i);
             let shard_name = self.shard_name(i);
-            self.object_storage.persist_object(shard_name.clone())?;
+            let propagated = self.object_storage.persist_object(shard_name.clone())?;
+            if (propagated as u8) >= (Propagation::Queued as u8) {
+                log::debug!("storage::flush(iteration: {}, {})", i, propagated as u8);
+            } else {
+                log::trace!("storage::flush(iteration: {}, {})", i, propagated as u8);
+            }
+            if (propagated as u8) < (overall_propagation as u8) {
+                overall_propagation = propagated;
+            }
         }
 
-        Ok(())
+        Ok(overall_propagation)
     }
 
     fn close(&mut self) {
