@@ -1,6 +1,14 @@
 nbd-rs
 ======
 
+## Disclaimer
+
+**DO NEVER USE THIS FOR PRODUCTION**
+
+Do not use this for any data that you cannot afford to lose any moment. Expect data loss, corruption/bit rot, and every other possible storage disaster.
+
+If you use alpha level software for your data, you might end up like we did previously => https://github.com/sheepdog/sheepdog/issues/425
+
 ## Roadmap
 
 * [X] Successfully serve dummy empty file (filled with zeroes), enough to satisfy `qemu-img info`
