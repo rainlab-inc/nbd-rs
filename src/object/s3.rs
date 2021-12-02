@@ -171,7 +171,6 @@ impl S3Client {
 
         Ok(object_meta)
     }
-
 }
 
 pub struct S3Backend {
@@ -222,7 +221,8 @@ impl SimpleObjectStorage for S3Backend {
     }
 
     fn read(&self, object_name: String) -> Result<Vec<u8>, Error> {
-        self.client.get_object(self.bucket.clone(), object_name.clone())
+        let data = self.client.get_object(self.bucket.clone(), object_name.clone())?;
+        Ok(data)
     }
 
     fn write(&self, object_name: String, data: &[u8]) -> Result<Propagation, Error> {
@@ -241,23 +241,26 @@ impl SimpleObjectStorage for S3Backend {
     }
 
     fn start_operations_on_object(&self, object_name: String) -> Result<(), Error> {
-        // NOOP
+        // Noop
         Ok(())
     }
 
     fn end_operations_on_object(&self, object_name: String) -> Result<(), Error> {
-        // NOOP
+        // Noop
         Ok(())
     }
 
     fn persist_object(&self, object_name: String) -> Result<Propagation, Error> {
-        // NOOP
+        // Noop
         Ok(Propagation::Noop)
+    }
+
+    fn close(&mut self) {
+        log::debug!("object::s3::close");
     }
 }
 
 impl PartialAccessObjectStorage for S3Backend {
-
     fn partial_read(&self, object_name: String, offset: u64, length: usize) -> Result<Vec<u8>, Error> {
         // self.client.get_object_partial(self.bucket.clone(), object_name.clone(), offset, length)
         let old_buffer: Vec<u8> = self.read(object_name.clone())?;

@@ -163,6 +163,11 @@ impl NBDServer {
             }
         }
         log::info!("Transmission ended");
+        let mut session = self.session.take().unwrap();
+        let driver = session.driver.take();
+        if driver.is_some() {
+            driver.unwrap().close();
+        }
     }
 
     fn handle_request(&mut self, mut socket: TcpStream) {
@@ -471,7 +476,7 @@ impl NBDServer {
         // FIXME! selected_export could be None. a proper error must be returned
         let selected_export = self.exports.get_key_value(&name.to_lowercase()).unwrap();
         let session = self.session.as_ref().unwrap();
-        let mut volume_size: u64;
+        let volume_size: u64;
         if session.driver.is_none() {
             let session = self.session.as_ref().unwrap();
             self.session = Some(NBDSession::new(

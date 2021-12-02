@@ -11,6 +11,9 @@ pub use self::file::FileBackend;
 mod s3;
 pub use self::s3::S3Backend;
 
+mod cache;
+pub use self::cache::CacheBackend;
+
 use crate::util::Propagation;
 
 pub trait SimpleObjectStorage {
@@ -28,6 +31,7 @@ pub trait SimpleObjectStorage {
     fn start_operations_on_object (&self, object_name: String) -> Result<(), Error>; // hints open  (or ++refCount==1?open)
     fn end_operations_on_object   (&self, object_name: String) -> Result<(), Error>; // hints close (or --refCount==0?close)
     fn persist_object             (&self, object_name: String) -> Result<Propagation, Error>; // hints flush
+    fn close                      (&mut self);
 }
 
 pub trait PartialAccessObjectStorage {
@@ -59,4 +63,4 @@ pub trait StreamingPartialAccessObjectStorage {
     }
 }
 
-pub trait ObjectStorage: SimpleObjectStorage + PartialAccessObjectStorage + StreamingObjectStorage + StreamingPartialAccessObjectStorage {}
+pub trait ObjectStorage: SimpleObjectStorage + PartialAccessObjectStorage + StreamingObjectStorage + StreamingPartialAccessObjectStorage + Send {}

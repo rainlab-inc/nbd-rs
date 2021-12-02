@@ -1,4 +1,7 @@
 #![allow(unused_variables)]
+#![allow(unused_must_use)]
+#![allow(dead_code)]
+
 use std::{
     collections::{HashMap},
 };

@@ -3,10 +3,12 @@ use std::io::{Error,ErrorKind};
 use crate::object::ObjectStorage;
 use crate::object::FileBackend;
 use crate::object::S3Backend;
+use crate::object::CacheBackend;
 
 pub fn object_storage_with_config(config: String) -> Result<Box<dyn ObjectStorage>, Error> {
     // config sample; "file:/path/to/folder/"
     // config sample; "s3:http://localhost:9000/test"
+    // config sample; "cache:s3:http://localhost:9000/test"
 
     let mut split: Vec<&str> = config.split(":").collect();
     let driver_name = split.remove(0);
@@ -20,6 +22,9 @@ pub fn object_storage_with_config(config: String) -> Result<Box<dyn ObjectStorag
         },
         "s3" => {
             Ok(Box::new(S3Backend::new(driver_config)))
+        },
+        "cache" => {
+            Ok(Box::new(CacheBackend::new(driver_config)))
         },
         _ => {
             // hard fail

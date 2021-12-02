@@ -44,7 +44,7 @@ impl ShardedBlock {
         let object_name = format!("{}/size", self.name.clone());
         let filedata = self.object_storage.read(object_name); // TODO: Errors?
         if filedata.is_err() {
-            return 67108864;
+            return 4 * 1024 * 1024 * 1024; // 4 GiB
         }
         // TODO: Allow file to not exist, create if does not exist
         let mut string = str::from_utf8(&filedata.unwrap()).unwrap().to_string();
@@ -80,7 +80,7 @@ impl BlockStorage for ShardedBlock {
             self.shard_index(offset + length as u64)
         };
 
-        log::debug!("storage::read(start: {}, end: {})", start, end);
+        log::trace!("storage::read(start: {}, end: {})", start, end);
         for i in start..=end {
             log::trace!("storage::read(iteration: {})", i);
             let shard_name = self.shard_name(i);
@@ -131,7 +131,7 @@ impl BlockStorage for ShardedBlock {
         let mut overall_propagation : Propagation = Propagation::Guaranteed;
 
         let mut cur_offset: usize = offset as usize;
-        let mut cur_shard = 0;
+        let mut cur_shard;
         let mut written: usize = 0;
         while written < length {
             cur_shard = self.shard_index(cur_offset as u64);
@@ -146,7 +146,7 @@ impl BlockStorage for ShardedBlock {
             let shard_name = self.shard_name(cur_shard);
 
             let slice = &data[written..(written + write_len)];
-            let mut propagated = Propagation::Unsure;
+            let propagated;
 
             // full write
             if write_len == self.shard_size as usize {
@@ -175,6 +175,7 @@ impl BlockStorage for ShardedBlock {
             }
 
             written += write_len;
+            cur_offset += written;
             if (propagated as u8) >= (Propagation::Queued as u8) {
                 log::debug!("storage::write(iteration: {}, {})", cur_shard, propagated as u8);
             } else {
@@ -216,5 +217,6 @@ impl BlockStorage for ShardedBlock {
 
     fn close(&mut self) {
         log::debug!("storage::close");
+        self.object_storage.close();
     }
 }
