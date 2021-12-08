@@ -23,7 +23,7 @@ pub struct NBDServer {
     exports: HashMap<String, NBDExportConfig>
 }
 
-#[derive(Hash)]
+#[derive(Hash, Clone)]
 pub struct NBDExportConfig {
     name: String,
     driver_type: String,
@@ -466,15 +466,13 @@ impl NBDServer {
         util::write_u32(len, socket);
     }
 
-    fn reply_info_export(&mut self, socket: TcpStream, opt: u32, name: String) {
+    fn reply_info_export(&mut self, socket: TcpStream, opt: u32, selected_export: (&String, &NBDExportConfig)) {
         self.reply(
             clone_stream!(socket),
             opt,
             proto::NBD_REP_INFO,
             12
         );
-        // FIXME! selected_export could be None. a proper error must be returned
-        let selected_export = self.exports.get_key_value(&name.to_lowercase()).unwrap();
         let session = self.session.as_ref().unwrap();
         let volume_size: u64;
         if session.driver.is_none() {
@@ -563,6 +561,24 @@ impl NBDServer {
         log::trace!("len:{},namelen:{},name:{},info_req_count:{}", _len, namelen, name, info_req_count);
         log::trace!("\t-->Info Requests: {:?}", info_reqs);
 
+        let exports = self.exports.clone();
+        let selected_export = match exports.get_key_value(&name.to_lowercase()) {
+            Some(export) => export,
+            None => {
+                log::warn!("Unknown export: {}", &name.to_lowercase());
+                let err_msg = String::from(format!("Unknown export: {}", &name.to_lowercase()));
+                let err_as_bytes = err_msg.as_bytes();
+                self.reply(
+                    clone_stream!(socket),
+                    opt,
+                    proto::NBD_REP_ERR_UNKNOWN,
+                    err_as_bytes.len() as u32
+                );
+                write!(err_as_bytes, socket);
+                return
+            }
+        };
+
         if info_reqs.is_empty() { //The client MAY list one or more items of specific information it is seeking in the list of information requests, or it MAY specify an empty list.
             info_reqs.push(3_u16);
         }
@@ -570,7 +586,7 @@ impl NBDServer {
         for req in &info_reqs {
             match *req {
                 proto::NBD_INFO_EXPORT => {// 0
-                    self.reply_info_export(clone_stream!(socket), opt, name.clone());
+                    self.reply_info_export(clone_stream!(socket), opt, selected_export);
                 }
                 proto::NBD_INFO_NAME => {// 1
                     self.reply(
@@ -606,7 +622,7 @@ impl NBDServer {
                     util::write_u32(4*1024 as u32, clone_stream!(socket));
                     util::write_u32(32*1024*1024 as u32, clone_stream!(socket));
                     log::debug!("\t-->Sent block size info");
-                    self.reply_info_export(clone_stream!(socket), opt, name.clone());
+                    self.reply_info_export(clone_stream!(socket), opt, selected_export);
                 }
                 r @ _ => {
                     log::warn!("Invalid Info Request: {:?}", r);
@@ -627,7 +643,6 @@ impl NBDServer {
             0
         );
         if (opt == proto::NBD_OPT_GO) & (self.session.as_ref().unwrap().driver.is_none()) {
-            let selected_export = self.exports.get_key_value(&name.to_lowercase()).unwrap();
             let session = self.session.take().unwrap();
             self.session = Some(NBDSession::new(
                 clone_stream!(socket),
