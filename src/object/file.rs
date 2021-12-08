@@ -3,7 +3,7 @@ use std::{
     io::{Read, Write, Seek, SeekFrom, Error, ErrorKind},
     collections::{HashMap},
     sync::{Arc,RwLock},
-    path::{Path,PathBuf},
+    path::{Path},
 };
 
 use mmap_safe::{MappedFile};
@@ -19,7 +19,7 @@ use crate::object::{
 use crate::util::Propagation;
 
 pub struct FileBackend {
-    folder_path: String,
+    file_path: String,
     open_files: RwLock<HashMap<String, Arc<RwLock<MappedFile>>>>,
 }
 
@@ -33,7 +33,7 @@ impl FileBackend {
     pub fn new(config: String) -> FileBackend {
         println!("FileBackend.config: {:?}", &config);
         FileBackend {
-            folder_path: config.clone(),
+            file_path: config.clone(),
             open_files: RwLock::<HashMap<String, Arc<RwLock<MappedFile>>>>::new(
                 HashMap::<String, Arc<RwLock<MappedFile>>>::new()
             )
@@ -57,24 +57,20 @@ impl FileBackend {
             return Ok(Arc::clone(&mapped_file.unwrap().1));
         }
 
-        let mapped_refcell = Arc::new(RwLock::new(MappedFile::open(object_name.clone()).unwrap()));
+        let mapped_refcell = Arc::new(RwLock::new(MappedFile::open(&self.file_path).unwrap()));
         let mapped = mapped_refcell.clone();
         open_files.insert(object_name.clone(), mapped_refcell);
         Ok(mapped)
-    }
-
-    fn obj_path(&self, object_name: String) -> PathBuf {
-        Path::new(&self.folder_path).join(object_name.clone())
     }
 }
 
 impl SimpleObjectStorage for FileBackend {
     fn init(&mut self, conn_str: String) {
-        self.folder_path = conn_str.clone()
+        self.file_path = conn_str.clone()
     }
 
     fn exists(&self, object_name: String) -> Result<bool, Error> {
-        let path = self.obj_path(object_name.clone());
+        let path = Path::new(&self.file_path);
         return Ok(path.is_file() && path.exists())
     }
 
@@ -91,7 +87,7 @@ impl SimpleObjectStorage for FileBackend {
                 return Ok(buffer)
             },
             None => {
-                let path = self.obj_path(object_name.clone());
+                let path = Path::new(&self.file_path);
                 let mut buffer: Vec<u8> = Vec::new();
                 if !self.exists(object_name.clone())? {
                     return Err(Error::new(ErrorKind::NotFound, "Object Not Found"))
@@ -120,7 +116,7 @@ impl SimpleObjectStorage for FileBackend {
                 mut_pointer.copy_from_slice(&data);
             },
             None => {
-                let path = self.obj_path(object_name.clone());
+                let path = Path::new(&self.file_path);
                 let mut file = OpenOptions::new()
                     .write(true)
                     .create(true)
@@ -139,7 +135,7 @@ impl SimpleObjectStorage for FileBackend {
     }
 
     fn get_size(&self, object_name: String) -> Result<u64, Error> {
-        let path = self.obj_path(object_name.clone());
+        let path = Path::new(&self.file_path);
 
         let length_data = path
             .metadata()
@@ -206,7 +202,7 @@ impl PartialAccessObjectStorage for FileBackend {
                 return Ok(buffer)
             },
             None => {
-                let path = self.obj_path(object_name.clone());
+                let path = Path::new(&self.file_path);
                 let mut buffer: Vec<u8> = Vec::new();
                 if !self.exists(object_name.clone())? {
                     return Err(Error::new(ErrorKind::NotFound, "Object Not Found"))
@@ -237,7 +233,7 @@ impl PartialAccessObjectStorage for FileBackend {
                 mut_pointer.copy_from_slice(&data);
             },
             None => {
-                let path = self.obj_path(object_name.clone());
+                let path = Path::new(&self.file_path);
                 let mut file = OpenOptions::new()
                     .write(true)
                     .create(true)
@@ -265,7 +261,7 @@ mod tests {
     #[test]
     fn test_file_backend_get_file() {
         let filesystem = FileBackend {
-            folder_path: String::from("alpine"),
+            file_path: String::from("alpine"),
             ..FileBackend::default()
         };
         let mapped_file = filesystem.get_file(String::from("alpine"));
@@ -277,9 +273,9 @@ mod tests {
     #[test]
     fn test_file_backend_init() {
         let mut filesystem = FileBackend::default();
-        assert!(&filesystem.folder_path == "");
+        assert!(&filesystem.file_path == "");
         filesystem.init(String::from("alpine"));
-        assert!(&filesystem.folder_path == "alpine");
+        assert!(&filesystem.file_path == "alpine");
     }
 
     #[test]
