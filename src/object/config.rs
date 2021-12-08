@@ -14,11 +14,11 @@ pub fn object_storage_with_config(config: String) -> Result<Box<dyn ObjectStorag
     let driver_name = split.remove(0);
     let driver_config = split.join(":");
 
-    log::info!("object storage: {:?}({:?})", &driver_name, &driver_config);
+    log::info!("object storage: {}({:?})", &driver_name, &driver_config);
 
     return match driver_name {
         "file" => {
-            Ok(Box::new(FileBackend::new(driver_config)))
+            Ok(Box::new(FileBackend::new(driver_config.replace("///", "./"))))
         },
         "s3" => {
             Ok(Box::new(S3Backend::new(driver_config)))
