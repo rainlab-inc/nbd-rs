@@ -1,4 +1,5 @@
 #![allow(unused_variables)]
+#![allow(unused_imports)]
 #![allow(unused_must_use)]
 #![allow(dead_code)]
 
@@ -9,7 +10,7 @@ use std::{
 use clap::{App, Arg, crate_authors, crate_version};
 
 use crate::{
-    nbd::{NBDExportConfig, NBDServer},
+    nbd::{NBDExport, NBDServer},
 };
 
 use log;
@@ -49,10 +50,10 @@ Sets the export(s) via `export` argument. Must be used at least once."),
         .unwrap()
         .map(|val| val.to_string())
         .collect();
-    let mut exports = HashMap::<String, NBDExportConfig>::new();
+    let mut exports = Vec::<NBDExport>::new();
     for i in 0..(matches.occurrences_of("export") as usize) {
-        exports.insert(vals[i * 3].clone(),
-            NBDExportConfig::new(
+        exports.push(
+            NBDExport::new(
                 vals[i * 3].clone(),
                 vals[i * 3 + 1].clone(),
                 vals[i * 3 + 2].clone()
