@@ -31,7 +31,7 @@ impl Default for FileBackend {
 
 impl FileBackend {
     pub fn new(config: String) -> FileBackend {
-        println!("FileBackend.config: {:?}", &config);
+        log::debug!("FileBackend.config: {:?}", &config);
         FileBackend {
             folder_path: config.clone(),
             open_files: RwLock::<HashMap<String, Arc<RwLock<MappedFile>>>>::new(
@@ -121,12 +121,15 @@ impl SimpleObjectStorage for FileBackend {
             },
             None => {
                 let path = self.obj_path(object_name.clone());
-                let mut file = OpenOptions::new()
+                let file = OpenOptions::new()
                     .write(true)
                     .create(true)
-                    .open(path)
-                    .unwrap();
-                file.write_all(data)?;
+                    .open(path);
+                match file {
+                    Ok(_) => (),
+                    Err(err) => return Err(err)
+                };
+                file.unwrap().write_all(data)?;
             }
         }
         // TODO: Consider file.sync_all()? or file.sync_data()?;
@@ -140,7 +143,7 @@ impl SimpleObjectStorage for FileBackend {
 
     fn get_size(&self, object_name: String) -> Result<u64, Error> {
         let path = self.obj_path(object_name.clone());
-        println!("{:?}", path);
+        log::debug!("Getting size of {:?}", path);
 
         let length_data = path
             .metadata()
