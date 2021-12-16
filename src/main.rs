@@ -5,6 +5,7 @@
 
 use std::{
     collections::{HashMap},
+    sync::{Arc, RwLock}
 };
 
 use clap::{App, Arg, crate_authors, crate_version};
@@ -50,14 +51,14 @@ Sets the export(s) via `export` argument. Must be used at least once."),
         .unwrap()
         .map(|val| val.to_string())
         .collect();
-    let mut exports = Vec::<NBDExport>::new();
+    let mut exports = Vec::<Arc<RwLock<NBDExport>>>::new();
     for i in 0..(matches.occurrences_of("export") as usize) {
         exports.push(
-            NBDExport::new(
+            Arc::new(RwLock::new(NBDExport::new(
                 vals[i * 3].clone(),
                 vals[i * 3 + 1].clone(),
                 vals[i * 3 + 2].clone()
-            )
+            )))
         );
     }
     let mut server = NBDServer::new("0.0.0.0".to_string(), 10809, exports);

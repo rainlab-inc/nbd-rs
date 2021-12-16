@@ -22,7 +22,7 @@ pub struct NBDServer {
     //sessions: Vec<NBDSession>,
     host: String,
     port: u16,
-    exports: Vec<NBDExport>
+    exports: Arc<RwLock<Vec<Arc<RwLock<NBDExport>>>>>
 }
 
 pub struct NBDExport {
@@ -57,7 +57,7 @@ impl NBDExport {
 
 
 impl NBDServer {
-    pub fn new(host: String, port: u16, exports: Vec<NBDExport>) -> NBDServer {
+    pub fn new(host: String, port: u16, exports: Vec<Arc<RwLock<NBDExport>>>) -> NBDServer {
         let addr: SocketAddr = format!("{}:{}", host, port).parse().unwrap();
         let socket_addr = addr.clone();
 
@@ -67,7 +67,7 @@ impl NBDServer {
             //sessions: Vec::new(),
             host,
             port,
-            exports
+            exports: Arc::new(RwLock::new(exports))
         }
     }
 
@@ -105,7 +105,7 @@ impl NBDServer {
             String::from(""),
             0,
             String::from(""),
-            self.exports
+            Arc::clone(&self.exports)
         );
         //self.sessions.push(session);
         log::info!("Connection established!");

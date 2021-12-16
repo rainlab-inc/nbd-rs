@@ -21,7 +21,7 @@ pub struct NBDSession {
     pub structured_reply: bool,
     pub selected_export: Option<Arc<RwLock<server::NBDExport>>>,
     pub driver_name: String,
-    pub export_refs: RefCell<Vec<server::NBDExport>>,
+    pub export_refs: Arc<RwLock<Vec<Arc<RwLock<server::NBDExport>>>>>,
     // TODO: contexts: list of active contexts with attached metadata_context_ids
     pub metadata_context_id: u32,
     //request: Option<NBDRequest>,
@@ -40,7 +40,7 @@ impl NBDSession {
         image_name: String,
         metadata_context_id: u32,
         storage_config: String,
-        export_refs: Vec<server::NBDExport>
+        export_refs: Arc<RwLock<Vec<Arc<RwLock<server::NBDExport>>>>>
     ) -> NBDSession {
         NBDSession {
             socket: socket,
@@ -49,7 +49,7 @@ impl NBDSession {
             selected_export: None,
             metadata_context_id: metadata_context_id,
             driver_name: driver_name.clone(),
-            export_refs: RefCell::new(export_refs)
+            export_refs: export_refs
         }
     }
 
@@ -108,9 +108,15 @@ impl NBDSession {
             }
         }
         log::info!("Transmission ended");
-        if self.selected_export.is_some() {
-            self.selected_export.unwrap().get_mut().unwrap().driver.get_mut().unwrap().close();
-            self.selected_export = None;
+        let selected_export = self.selected_export.take();
+        if selected_export.is_some() {
+            let selected_export_un = selected_export.unwrap();
+            let mut write_lock = selected_export_un.try_write().unwrap();
+            {
+                let mut driver = Arc::get_mut(&mut write_lock.driver).unwrap().try_write().unwrap();
+                driver.close();
+            }
+            drop(write_lock);
         }
     }
     fn handle_request(&mut self) {
@@ -124,8 +130,9 @@ impl NBDSession {
                 log::trace!("NBD_CMD_READ");
                 log::trace!("\t-->flags:{}, handle: {}, offset: {}, datalen: {}", flags, handle, offset, datalen);
                 log::trace!("STRUCTURED REPLY: {}", self.structured_reply);
-                let selected_export = self.selected_export.unwrap();
-                let driver = selected_export.get_mut().unwrap().driver.get_mut().unwrap();
+                let selected_export = self.selected_export.as_ref().unwrap();
+                let mut write_lock = selected_export.try_write().unwrap();
+                let driver = Arc::get_mut(&mut write_lock.driver).unwrap().try_write().unwrap();
                 let buffer_res = driver.read(offset, datalen as usize);
                 if buffer_res.is_err() {
                     // handle error
@@ -170,7 +177,9 @@ impl NBDSession {
                 let mut data = vec![0; datalen as usize];
                 match clone_stream!(self.socket).read_exact(&mut data) {
                     Ok(_) => {
-                        let mut driver = self.selected_export.unwrap().get_mut().unwrap().driver.get_mut().unwrap();
+                        let selected_export = self.selected_export.as_ref().unwrap();
+                        let mut write_lock = selected_export.try_write().unwrap();
+                        let mut driver = Arc::get_mut(&mut write_lock.driver).unwrap().try_write().unwrap();
                         let driver_name = driver.get_name();
 
                         let write_res = driver.write(offset, datalen as usize, &data);
@@ -241,17 +250,26 @@ impl NBDSession {
                 let selected_export = self.selected_export.take();
                 if selected_export.is_some() {
                     let selected_export_un = selected_export.unwrap();
-                    selected_export_un.get_mut().unwrap().driver.get_mut().unwrap().close();
+                    let mut write_lock = selected_export_un.try_write().unwrap();
+                    {
+                        let mut driver = Arc::get_mut(&mut write_lock.driver).unwrap().try_write().unwrap();
+                        driver.close();
+                    }
+                    drop(write_lock);
                 }
             }
             proto::NBD_CMD_FLUSH => { // 3
                 log::debug!("NBD_CMD_FLUSH");
-                let selected_export = self.selected_export.unwrap();
-                let mut driver = selected_export.get_mut().unwrap().driver.get_mut().unwrap();
-                let driver_name = driver.get_name();
-                match driver.flush(0, driver.get_volume_size() as usize) {
-                    Ok(_) => log::trace!("flushed"),
-                    Err(e) => log::error!("{}", e)
+                let selected_export = self.selected_export.as_ref().unwrap();
+                let mut write_lock = selected_export.try_write().unwrap();
+                {
+                    let mut driver = Arc::get_mut(&mut write_lock.driver).unwrap().try_write().unwrap();
+                    let driver_name = driver.get_name();
+                    let volume_size = driver.get_volume_size() as usize;
+                    match driver.flush(0, volume_size) {
+                        Ok(_) => log::trace!("flushed"),
+                        Err(e) => log::error!("{}", e)
+                    }
                 }
                 if self.structured_reply == true {
                     self.structured_reply(
@@ -263,6 +281,7 @@ impl NBDSession {
                 } else {
                     self.simple_reply(0_u32, handle);
                 }
+                drop(write_lock);
             }
             proto::NBD_CMD_BLOCK_STATUS => { // 7
                 // fsync
