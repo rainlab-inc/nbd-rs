@@ -447,21 +447,18 @@ impl NBDSession {
         log::trace!("\t-->Info Requests: {:?}", info_reqs);
 
         self.select_export(name.clone().to_lowercase());
-        match self.selected_export {
-            Some(_) => (),
-            None => {
-                log::warn!("Unknown export: {}", &name.to_lowercase());
-                let err_msg = String::from(format!("Unknown export: {}", &name.to_lowercase()));
-                let err_as_bytes = err_msg.as_bytes();
-                self.reply(
-                    opt,
-                    proto::NBD_REP_ERR_UNKNOWN,
-                    err_as_bytes.len() as u32
-                );
-                write!(err_as_bytes, self.socket);
-                return
-            }
-        };
+        if self.selected_export.is_none() {
+            log::warn!("Unknown export: {}", &name.to_lowercase());
+            let err_msg = String::from(format!("Unknown export: {}", &name.to_lowercase()));
+            let err_as_bytes = err_msg.as_bytes();
+            self.reply(
+                opt,
+                proto::NBD_REP_ERR_UNKNOWN,
+                err_as_bytes.len() as u32
+            );
+            write!(err_as_bytes, self.socket);
+            return
+        }
 
         if info_reqs.is_empty() { //The client MAY list one or more items of specific information it is seeking in the list of information requests, or it MAY specify an empty list.
             info_reqs.push(3_u16);

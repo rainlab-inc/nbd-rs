@@ -57,7 +57,7 @@ impl FileBackend {
             return Ok(Arc::clone(&mapped_file.unwrap().1));
         }
 
-        let mapped_refcell = Arc::new(RwLock::new(MappedFile::open(object_name.clone()).unwrap()));
+        let mapped_refcell = Arc::new(RwLock::new(MappedFile::open(object_name.clone())?));
         let mapped = mapped_refcell.clone();
         open_files.insert(object_name.clone(), mapped_refcell);
         Ok(mapped)
