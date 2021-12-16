@@ -26,7 +26,7 @@ pub struct NBDServer {
 }
 
 pub struct NBDExport {
-    name: String,
+    pub name: String,
     driver_type: String,
     config: String,
     pub driver: Arc<RwLock<Box<dyn BlockStorage>>>,

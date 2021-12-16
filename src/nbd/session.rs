@@ -102,7 +102,7 @@ impl NBDSession {
                 }
                 0x49484156454F5054 => {
                     // IHAVEOPT
-                    //self.handle_option();
+                    self.handle_option();
                 }
                 _ => (),
             }
@@ -319,48 +319,43 @@ impl NBDSession {
         util::write_u32(length_of_payload, clone_stream!(self.socket));
     }
 
-    /*
-    fn handle_option(&mut self, socket: TcpStream) {
-        let option = util::read_u32(clone_stream!(socket));
+    fn handle_option(&mut self) {
+        let option = util::read_u32(clone_stream!(self.socket));
         log::debug!("Option: {}", option);
         match option {
             proto::NBD_OPT_ABORT => {// 2
-                self.handle_opt_abort(clone_stream!(socket));
+                self.handle_opt_abort();
                 //println!("Shutting down connection...")'
-                //socket.shutdown(Shutdown::Both).expect("Shutdown failed");
+                //self.socket.shutdown(Shutdown::Both).expect("Shutdown failed");
                 //break;
             }
             proto::NBD_OPT_INFO | proto::NBD_OPT_GO => {// 6, 7
-                self.handle_opt_info_go(clone_stream!(socket), option);
+                self.handle_opt_info_go(option);
             }
             proto::NBD_OPT_STRUCTURED_REPLY => {// 8
-                let data = util::read_u32(clone_stream!(socket));
+                let data = util::read_u32(clone_stream!(self.socket));
                 if data > 0 {
                     log::trace!("{}", data);
                     self.reply(
-                        clone_stream!(socket),
                         proto::NBD_OPT_STRUCTURED_REPLY,
                         proto::NBD_REP_ERR_INVALID,
                         0
                     );
                 } else {
                     self.reply(
-                        clone_stream!(socket),
                         proto::NBD_OPT_STRUCTURED_REPLY,
                         proto::NBD_REP_ACK,
                         0
                     );
-                    let session = self.session.take();
-                    self.session = Some(session.unwrap().set_structured_reply());
+                    self.structured_reply = true;
                 }
             }
             proto::NBD_OPT_SET_META_CONTEXT => {// 10
-                self.handle_opt_set_meta_context(clone_stream!(socket));
+                self.handle_opt_set_meta_context();
             }
             _ => {
                 log::warn!("Invalid/Unimplemented OPT: {:?}", option);
                 self.reply_opt(
-                    clone_stream!(socket),
                     option,
                     proto::NBD_REP_ERR_UNSUP,
                     0,
@@ -369,73 +364,60 @@ impl NBDSession {
         }
     }
 
-    fn reply(&mut self, socket: TcpStream, opt: u32, reply_type: u32, len: u32) {
-        util::write_u64(0x3e889045565a9, clone_stream!(socket)); // REPLY MAGIC
-        util::write_u32(opt, clone_stream!(socket));
-        util::write_u32(reply_type, clone_stream!(socket));
-        util::write_u32(len, socket);
+    fn reply(&mut self, opt: u32, reply_type: u32, len: u32) {
+        util::write_u64(0x3e889045565a9, clone_stream!(self.socket)); // REPLY MAGIC
+        util::write_u32(opt, clone_stream!(self.socket));
+        util::write_u32(reply_type, clone_stream!(self.socket));
+        util::write_u32(len, clone_stream!(self.socket));
     }
 
-    fn reply_info_export(&mut self, socket: TcpStream, opt: u32, selected_export: (&String, &NBDExportConfig)) {
+    fn reply_info_export(&mut self, opt: u32, export_name: String) {
         self.reply(
-            clone_stream!(socket),
             opt,
             proto::NBD_REP_INFO,
             12
         );
-        let session = self.session.as_ref().unwrap();
         let volume_size: u64;
-        if session.driver.is_none() {
-            let session = self.session.as_ref().unwrap();
-            self.session = Some(NBDSession::new(
-                clone_stream!(socket),
-                session.flags,
-                session.structured_reply,
-                selected_export.1.driver_type.clone(),
-                String::from(selected_export.0),
-                session.metadata_context_id,
-                selected_export.1.conn_str.clone()
-            ));
-            volume_size = self.session.as_ref().unwrap().driver.as_ref().unwrap().get_volume_size();
-        } else {
-            volume_size = self.session.as_ref().unwrap().driver.as_ref().unwrap().get_volume_size();
+        if self.selected_export.is_none() {
+            self.select_export(export_name);
+        }
+        let selected_export = self.selected_export.as_ref().unwrap();
+        let mut write_lock = selected_export.try_write().unwrap();
+        {
+            let driver = Arc::get_mut(&mut write_lock.driver).unwrap().try_write().unwrap();
+            let driver_name = driver.get_name();
+            volume_size = driver.get_volume_size();
         }
         let flags: u16 = proto::NBD_FLAG_HAS_FLAGS | proto::NBD_FLAG_SEND_FLUSH | proto::NBD_FLAG_SEND_RESIZE | proto::NBD_FLAG_SEND_WRITE_ZEROES | proto::NBD_FLAG_SEND_CACHE | proto::NBD_FLAG_SEND_TRIM;
-        util::write_u16(proto::NBD_INFO_EXPORT, clone_stream!(socket));
-        util::write_u64(volume_size, clone_stream!(socket));
-        util::write_u16(flags, clone_stream!(socket));
+        util::write_u16(proto::NBD_INFO_EXPORT, clone_stream!(self.socket));
+        util::write_u64(volume_size, clone_stream!(self.socket));
+        util::write_u16(flags, clone_stream!(self.socket));
         log::debug!("\t-->Export Data Sent:");
         log::debug!("\t-->\t-->NBD_INFO_EXPORT: \t{:?}", proto::NBD_INFO_EXPORT as u16);
         log::debug!("\t-->\t-->Volume Size: \t{:?}", volume_size as u32);
         log::debug!("\t-->\t-->Transmission Flags: \t{:?}", flags as u16);
     }
 
-    fn reply_opt(
-        &mut self,
-        mut socket: TcpStream,
-        opt: u32,
-        reply_type: u32,
-        len: u32,
-    ) {
+    fn reply_opt(&mut self, opt: u32, reply_type: u32, len: u32) {
         let data_permitted = vec![1, 6, 7, 9, 10].contains(&opt); // OPTION CODES THAT IS ALLOWED TO CARRY DATA
-        self.reply(clone_stream!(socket), opt, reply_type, 4 + len);
-        util::write_u32(len, clone_stream!(socket));
+        self.reply(opt, reply_type, 4 + len);
+        util::write_u32(len, clone_stream!(self.socket));
         log::debug!(" -> Option: {:?}, Option length: {:?}, Data permitted: {:?}", opt, len, data_permitted);
 
         if len > 0 {
             let mut data = vec![0; len as usize];
-            clone_stream!(socket) // Docs says server should not reject the data even if not needed
+            clone_stream!(self.socket) // Docs says server should not reject the data even if not needed
                 .read_exact(&mut data)
                 .expect("Error on reading Option Data!");
             log::trace!("\t\\-> Data: {:?}", data);
             if data_permitted {
-                write!(&data, socket);
+                write!(&data, self.socket);
                 log::trace!("Data sent for option {:?}", opt);
             }
         }
     }
 
-    fn handle_opt_abort(&mut self, _socket: TcpStream) {
+    fn handle_opt_abort(&mut self) {
         /*
         let len = util::read_u32(clone_stream!(socket));
         self.reply_opt(
@@ -447,37 +429,36 @@ impl NBDSession {
         */
     }
 
-    fn handle_opt_info_go(&mut self, mut socket: TcpStream, opt: u32) {
+    fn handle_opt_info_go(&mut self, opt: u32) {
         log::debug!("handle_opt_info_go");
-        let _len = util::read_u32(clone_stream!(socket));
-        let namelen = util::read_u32(clone_stream!(socket));
+        let _len = util::read_u32(clone_stream!(self.socket));
+        let namelen = util::read_u32(clone_stream!(self.socket));
         // if namelen > len - 6 { return NBD_EINVAL }
         let name = match namelen {
             0 => "default".to_string(),
-            _ => util::read_string(namelen as usize, clone_stream!(socket)),
+            _ => util::read_string(namelen as usize, clone_stream!(self.socket)),
         };
-        let info_req_count = util::read_u16(clone_stream!(socket));
+        let info_req_count = util::read_u16(clone_stream!(self.socket));
         let mut info_reqs = Vec::new();
         for _ in 0..info_req_count {
-            info_reqs.push(util::read_u16(clone_stream!(socket)));
+            info_reqs.push(util::read_u16(clone_stream!(self.socket)));
         }
         log::trace!("len:{},namelen:{},name:{},info_req_count:{}", _len, namelen, name, info_req_count);
         log::trace!("\t-->Info Requests: {:?}", info_reqs);
 
-        let exports = self.exports.clone();
-        let selected_export = match exports.get_key_value(&name.to_lowercase()) {
-            Some(export) => export,
+        self.select_export(name.clone().to_lowercase());
+        match self.selected_export {
+            Some(_) => (),
             None => {
                 log::warn!("Unknown export: {}", &name.to_lowercase());
                 let err_msg = String::from(format!("Unknown export: {}", &name.to_lowercase()));
                 let err_as_bytes = err_msg.as_bytes();
                 self.reply(
-                    clone_stream!(socket),
                     opt,
                     proto::NBD_REP_ERR_UNKNOWN,
                     err_as_bytes.len() as u32
                 );
-                write!(err_as_bytes, socket);
+                write!(err_as_bytes, self.socket);
                 return
             }
         };
@@ -489,48 +470,36 @@ impl NBDSession {
         for req in &info_reqs {
             match *req {
                 proto::NBD_INFO_EXPORT => {// 0
-                    self.reply_info_export(clone_stream!(socket), opt, selected_export);
+                    self.reply_info_export(opt, name.clone().to_lowercase());
                 }
                 proto::NBD_INFO_NAME => {// 1
-                    self.reply(
-                        clone_stream!(socket),
-                        opt,
-                        proto::NBD_REP_INFO,
-                        0
-                    );
-                    util::write_u16(proto::NBD_INFO_NAME, clone_stream!(socket));
-                    write!(name.as_bytes(), socket);
+                    self.reply(opt, proto::NBD_REP_INFO, 0);
+                    util::write_u16(proto::NBD_INFO_NAME, clone_stream!(self.socket));
+                    write!(name.as_bytes(), self.socket);
                 }
                 proto::NBD_INFO_DESCRIPTION => {// 2
                     let name_as_bytes = name.as_bytes();
                     let length_of_name = name_as_bytes.len();
                     self.reply(
-                        clone_stream!(socket),
                         opt,
                         proto::NBD_REP_INFO,
                         2 + length_of_name as u32
                     );
-                    util::write_u16(proto::NBD_INFO_DESCRIPTION, clone_stream!(socket));
-                    write!(name_as_bytes, socket);
+                    util::write_u16(proto::NBD_INFO_DESCRIPTION, clone_stream!(self.socket));
+                    write!(name_as_bytes, self.socket);
                 }
                 proto::NBD_INFO_BLOCK_SIZE => {// 3
-                    self.reply(
-                        clone_stream!(socket),
-                        opt,
-                        proto::NBD_REP_INFO,
-                        14
-                    );
-                    util::write_u16(proto::NBD_INFO_BLOCK_SIZE, clone_stream!(socket));
-                    util::write_u32(512 as u32, clone_stream!(socket));
-                    util::write_u32(4*1024 as u32, clone_stream!(socket));
-                    util::write_u32(32*1024*1024 as u32, clone_stream!(socket));
+                    self.reply(opt, proto::NBD_REP_INFO, 14);
+                    util::write_u16(proto::NBD_INFO_BLOCK_SIZE, clone_stream!(self.socket));
+                    util::write_u32(512 as u32, clone_stream!(self.socket));
+                    util::write_u32(4*1024 as u32, clone_stream!(self.socket));
+                    util::write_u32(32*1024*1024 as u32, clone_stream!(self.socket));
                     log::debug!("\t-->Sent block size info");
-                    self.reply_info_export(clone_stream!(socket), opt, selected_export);
+                    self.reply_info_export(opt, name.clone().to_lowercase());
                 }
                 r @ _ => {
                     log::warn!("Invalid Info Request: {:?}", r);
                     self.reply_opt(
-                        clone_stream!(socket),
                         proto::NBD_REP_INFO,
                         proto::NBD_EINVAL as u32,
                         0
@@ -539,16 +508,12 @@ impl NBDSession {
             }
         }
 
-        self.reply(
-            clone_stream!(socket),
-            opt,
-            proto::NBD_REP_ACK,
-            0
-        );
-        if (opt == proto::NBD_OPT_GO) & (self.session.as_ref().unwrap().driver.is_none()) {
+        self.reply(opt, proto::NBD_REP_ACK, 0);
+        /*
+        if (opt == proto::NBD_OPT_GO) & (self.selected_export.is_none()) {
             let session = self.session.take().unwrap();
             self.session = Some(NBDSession::new(
-                clone_stream!(socket),
+                clone_stream!(self.socket),
                 session.flags,
                 session.structured_reply,
                 selected_export.1.driver_type.clone(),
@@ -557,26 +522,26 @@ impl NBDSession {
                 selected_export.1.conn_str.clone()
             ));
         }
+        */
     }
 
 
-    fn handle_opt_set_meta_context(&mut self, socket: TcpStream) {
+    fn handle_opt_set_meta_context(&mut self) {
         log::debug!("handle_opt_set_meta_context");
-        let total_length = util::read_u32(clone_stream!(socket));
-        let export_name_length = util::read_u32(clone_stream!(socket));
+        let total_length = util::read_u32(clone_stream!(self.socket));
+        let export_name_length = util::read_u32(clone_stream!(self.socket));
         let export_name = match export_name_length {
             0 => "default".to_string(),
-            _ => util::read_string(export_name_length as usize, clone_stream!(socket)),
+            _ => util::read_string(export_name_length as usize, clone_stream!(self.socket)),
         };
-        let number_of_queries = util::read_u32(clone_stream!(socket));
+        let number_of_queries = util::read_u32(clone_stream!(self.socket));
         log::trace!("\t-->total_length: {}, export_name_length: {}, export_name: {}, number_of_queries: {}", total_length, export_name_length, export_name, number_of_queries);
         if number_of_queries > 0 {
             for i in 0..number_of_queries {
-                let query_length = util::read_u32(clone_stream!(socket));
-                let query = util::read_string(query_length as usize, clone_stream!(socket));
+                let query_length = util::read_u32(clone_stream!(self.socket));
+                let query = util::read_string(query_length as usize, clone_stream!(self.socket));
                 log::trace!("\t-->\t-->iter: {}, query: {}", i + 1, query);
                 self.reply(
-                    clone_stream!(socket),
                     proto::NBD_OPT_SET_META_CONTEXT,
                     proto::NBD_REP_META_CONTEXT,
                     4 + query.len() as u32
@@ -585,20 +550,22 @@ impl NBDSession {
                     .duration_since(UNIX_EPOCH)
                     .unwrap()
                     .subsec_nanos();
-                let session = self.session.take();
-                self.session = Some(session.unwrap().set_metadata_context_id(nbd_metadata_context_id));
-                util::write_u32(nbd_metadata_context_id, clone_stream!(socket));
-                clone_stream!(socket).write(query.to_lowercase().as_bytes()).expect("Couldn't send query data");
+                self.metadata_context_id = nbd_metadata_context_id;
+                util::write_u32(nbd_metadata_context_id, clone_stream!(self.socket));
+                clone_stream!(self.socket).write(query.to_lowercase().as_bytes()).expect("Couldn't send query data");
             }
         }
-        self.reply(
-            clone_stream!(socket),
-            proto::NBD_OPT_SET_META_CONTEXT,
-            proto::NBD_REP_ACK,
-            0
-        );
+        self.reply(proto::NBD_OPT_SET_META_CONTEXT, proto::NBD_REP_ACK, 0);
     }
-    */
+
+    fn select_export(&mut self, export_name: String) {
+        for export in &*self.export_refs.read().unwrap() {
+            if *export.read().unwrap().name == export_name {
+                self.selected_export = Some(Arc::clone(&export));
+                break;
+            }
+        }
+    }
 }
 
 //TODO
