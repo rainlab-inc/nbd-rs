@@ -70,6 +70,10 @@ impl BlockStorage for RawBlock {
             .persist_object(self.name.clone())
     }
 
+    fn trim(&mut self, offset: u64, length: usize) -> Result<Propagation, Error> {
+        self.object_storage.trim_object(self.name.clone(), offset, length)
+    }
+
     fn close(&mut self) {
         self.object_storage
             .end_operations_on_object(self.name.clone())

@@ -215,6 +215,22 @@ impl BlockStorage for ShardedBlock {
         Ok(overall_propagation)
     }
 
+    fn trim(&mut self, offset: u64, length: usize) -> Result<Propagation, Error> {
+        let start = self.shard_index(offset);
+        let end = if 0 == (offset + length as u64) % self.shard_size {
+            self.shard_index(offset + length as u64) - 1
+        } else {
+            self.shard_index(offset + length as u64)
+        };
+        log::debug!("storage::trim(start: {}, end: {})", start, end);
+        let mut overall_propagation : Propagation = Propagation::Guaranteed;
+        for i in start..=end {
+            let object_name = self.shard_name(self.shard_index(offset));
+            overall_propagation = self.object_storage.trim_object(object_name, offset, length)?;
+        }
+        Ok(overall_propagation)
+    }
+
     fn close(&mut self) {
         log::debug!("storage::close");
         self.object_storage.close();

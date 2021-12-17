@@ -283,6 +283,31 @@ impl NBDSession {
                 }
                 drop(write_lock);
             }
+            proto::NBD_CMD_TRIM => { // 4
+                log::debug!("NBD_CMD_TRIM");
+                let selected_export = self.selected_export.as_ref().unwrap();
+                let mut write_lock = selected_export.try_write().unwrap();
+                {
+                    let mut driver = Arc::get_mut(&mut write_lock.driver).unwrap().try_write().unwrap();
+                    let driver_name = driver.get_name();
+                    let volume_size = driver.get_volume_size() as usize;
+                    match driver.trim(0, volume_size) {
+                        Ok(_) => log::trace!("trimmed"),
+                        Err(e) => log::error!("{}", e)
+                    }
+                }
+                if self.structured_reply == true {
+                    self.structured_reply(
+                        proto::NBD_REPLY_FLAG_DONE,
+                        proto::NBD_REPLY_TYPE_NONE,
+                        handle,
+                        0
+                    );
+                } else {
+                    self.simple_reply(0_u32, handle);
+                }
+                drop(write_lock);
+            }
             proto::NBD_CMD_BLOCK_STATUS => { // 7
                 // fsync
                 log::debug!("NBD_CMD_BLOCK_STATUS");

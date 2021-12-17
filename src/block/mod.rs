@@ -20,5 +20,6 @@ pub trait BlockStorage {
     fn read(&self, offset: u64, length: usize) -> Result<Vec<u8>, Error>;
     fn write(&mut self, offset: u64, length: usize, data: &[u8]) -> Result<Propagation, Error>;
     fn flush(&mut self, offset: u64, length: usize) -> Result<Propagation, Error>;
+    fn trim(&mut self, offset: u64, length: usize) -> Result<Propagation, Error>;
     fn close(&mut self);
 }

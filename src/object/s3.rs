@@ -255,6 +255,17 @@ impl SimpleObjectStorage for S3Backend {
         Ok(Propagation::Noop)
     }
 
+    fn trim_object (&self, object_name: String, offset: u64, length: usize) -> Result<Propagation, Error> {
+        let mut trimmed_data = vec![];
+        {
+            let data = self.read(object_name.clone())?;
+            trimmed_data.extend_from_slice(&data[..(offset as usize)]);
+            trimmed_data.extend_from_slice(&data[(offset as usize + length)..]);
+        }
+        self.client.put_object(self.bucket.clone(), object_name.clone(), &trimmed_data)?;
+        Ok(Propagation::Complete)
+    }
+
     fn close(&mut self) {
         log::debug!("object::s3::close");
     }

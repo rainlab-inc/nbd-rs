@@ -31,6 +31,7 @@ pub trait SimpleObjectStorage {
     fn start_operations_on_object (&self, object_name: String) -> Result<(), Error>; // hints open  (or ++refCount==1?open)
     fn end_operations_on_object   (&self, object_name: String) -> Result<(), Error>; // hints close (or --refCount==0?close)
     fn persist_object             (&self, object_name: String) -> Result<Propagation, Error>; // hints flush
+    fn trim_object                (&self, object_name: String, offset: u64, length: usize) -> Result<Propagation, Error>; // hints trim
     fn close                      (&mut self);
 }
 

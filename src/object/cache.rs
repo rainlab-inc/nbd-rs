@@ -477,6 +477,29 @@ impl SimpleObjectStorage for CacheBackend {
         retry(|| { backend.persist_object(object_name.clone()) })
     }
 
+    fn trim_object (&self, object_name: String, offset: u64, length: usize) -> Result<Propagation, Error> {
+        let cache = self.cache.write().unwrap();
+        let cached_obj_ref = cache.get_key_value(&object_name.clone());
+        if cached_obj_ref.is_some() {
+            log::trace!("write: hit");
+            let mut cached_obj = cached_obj_ref.unwrap().1.write().unwrap();
+            cached_obj.writes += 1;
+            cached_obj.last_write = Some(Instant::now());
+            let mut trimmed_data = vec![];
+            {
+                trimmed_data.extend_from_slice(&cached_obj.data[..(offset as usize)]);
+                trimmed_data.extend_from_slice(&cached_obj.data[(offset as usize + length)..]);
+            }
+            cached_obj.data = trimmed_data;
+            log::trace!("mem_usage: {}", self.mem_usage.load(Ordering::Acquire));
+            self.sender.as_ref().unwrap().send(true);
+            return Ok(Propagation::Queued);
+        }
+        log::trace!("write: miss");
+        self.sender.as_ref().unwrap().send(true);
+        Ok(Propagation::Ignored) // Fail/Ignore/Redundant?
+    }
+
     fn close(&mut self) {
         log::debug!("object::cache::close");
         self.sender.as_ref().unwrap().send(false);
