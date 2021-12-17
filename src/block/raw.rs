@@ -1,6 +1,7 @@
 use std::{
-    io::{Error},
+    io::{Error}
 };
+use url::{Url};
 
 use crate::{
     object::{ObjectStorage, object_storage_with_config},
@@ -11,6 +12,7 @@ use crate::util::Propagation;
 // Driver: RawBlock
 
 pub struct RawBlock {
+    export_name: String,
     name: String,
     volume_size: u64,
     object_storage: Box<dyn ObjectStorage>,
@@ -18,10 +20,19 @@ pub struct RawBlock {
 
 impl RawBlock {
     pub fn new(name: String, config: String) -> RawBlock {
+        let mut split: Vec<&str> = config.split(":").collect();
+        let driver_name = split.remove(0);
+        let driver_config = split.join(":");
+
+        let segments = Url::from_file_path(&driver_config).unwrap();
+        let filename = segments.path_segments().unwrap().last().unwrap();
+        let new_config = segments.as_str().strip_suffix(filename).unwrap();
+
         let mut selfref = RawBlock {
-            name: name.clone(),
+            export_name: name.clone(),
+            name: String::from(filename),
             volume_size: 0_u64,
-            object_storage: object_storage_with_config(config).unwrap(),
+            object_storage: object_storage_with_config(String::from(new_config)).unwrap(),
         };
         selfref.init();
         selfref
