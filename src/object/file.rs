@@ -121,7 +121,7 @@ impl SimpleObjectStorage for FileBackend {
             },
             None => {
                 let path = self.obj_path(object_name.clone());
-                let file = OpenOptions::new()
+                let mut file = OpenOptions::new()
                     .write(true)
                     .create(true)
                     .open(path)?;
