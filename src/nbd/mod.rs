@@ -1,7 +1,7 @@
 pub mod proto;
 
 mod server;
-pub use self::server::{NBDServer, NBDExportConfig};
+pub use self::server::{NBDServer, NBDExport};
 
 mod session;
 pub use self::session::NBDSession;

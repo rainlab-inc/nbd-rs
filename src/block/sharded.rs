@@ -41,7 +41,7 @@ impl ShardedBlock {
     }
 
     pub fn size_of_volume(&self) -> u64 {
-        let object_name = format!("{}/size", self.name.clone());
+        let object_name = String::from("size");
         let filedata = self.object_storage.read(object_name); // TODO: Errors?
         if filedata.is_err() {
             return 4 * 1024 * 1024 * 1024; // 4 GiB
@@ -54,7 +54,7 @@ impl ShardedBlock {
     }
 
     pub fn shard_name(&self, index: usize) -> String {
-        format!("{}/block-{}", self.name.clone(), index).to_string()
+        format!("block-{}", index).to_string()
     }
 }
 
