@@ -1,16 +1,20 @@
-version: '2.2'
+version: '3.5'
 services:
   nbd_server:
     build: .
     ports:
-    - 10891:10891
+    - 10809:10809
+    command: [ "--export", "disk1", "sharded", "s3:http://miniotest:miniotest@minio:9000/disks/mydisk1" ]
+    environment:
+      RUST_LOG: info,nbd_rs=debug
+      RUST_BACKTRACE: "1"
 
-  devshell:
-    scale: 0
-    build:
-      context: .
-      target: builder
-    command: sleep infinity
+  # devshell:
+  #   # scale: 0
+  #   build:
+  #     context: .
+  #     target: builder
+  #   command: sleep infinity
 
   minio:
     image: minio/minio
