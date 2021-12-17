@@ -124,12 +124,9 @@ impl SimpleObjectStorage for FileBackend {
                 let file = OpenOptions::new()
                     .write(true)
                     .create(true)
-                    .open(path);
-                match file {
-                    Ok(_) => (),
-                    Err(err) => return Err(err)
-                };
-                file.unwrap().write_all(data)?;
+                    .open(path)?;
+
+                file.write_all(data)?;
             }
         }
         // TODO: Consider file.sync_all()? or file.sync_data()?;
