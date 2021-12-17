@@ -140,7 +140,6 @@ impl SimpleObjectStorage for FileBackend {
 
     fn get_size(&self, object_name: String) -> Result<u64, Error> {
         let path = self.obj_path(object_name.clone());
-        println!("{:?}", path);
 
         let length_data = path
             .metadata()
