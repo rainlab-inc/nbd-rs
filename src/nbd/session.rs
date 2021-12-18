@@ -291,7 +291,7 @@ impl NBDSession {
                     let mut driver = Arc::get_mut(&mut write_lock.driver).unwrap().try_write().unwrap();
                     let driver_name = driver.get_name();
                     let volume_size = driver.get_volume_size() as usize;
-                    match driver.trim(0, volume_size) {
+                    match driver.trim(offset, datalen as usize) {
                         Ok(_) => log::trace!("trimmed"),
                         Err(e) => log::error!("{}", e)
                     }
