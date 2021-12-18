@@ -268,7 +268,7 @@ impl NBDSession {
                     let volume_size = driver.get_volume_size() as usize;
                     match driver.flush(0, volume_size) {
                         Ok(_) => log::trace!("flushed"),
-                        Err(e) => log::error!("{}", e)
+                        Err(e) => log::error!("{}", e) // TODO: Reflect error to client
                     }
                 }
                 if self.structured_reply == true {
@@ -293,7 +293,7 @@ impl NBDSession {
                     let volume_size = driver.get_volume_size() as usize;
                     match driver.trim(offset, datalen as usize) {
                         Ok(_) => log::trace!("trimmed"),
-                        Err(e) => log::error!("{}", e)
+                        Err(e) => log::error!("{}", e) // TODO: Reflect error to client
                     }
                 }
                 if self.structured_reply == true {
