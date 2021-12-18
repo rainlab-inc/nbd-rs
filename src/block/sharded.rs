@@ -216,6 +216,13 @@ impl BlockStorage for ShardedBlock {
     }
 
     fn trim(&mut self, offset: u64, length: usize) -> Result<Propagation, Error> {
+        // TODO: Write unit tests to ensure correct behavior
+        // We MUST NOT TRIM any shared that is not requested to be trimmed as a whole
+        // So:
+        // * start = ceil(offset / self.shard_size)
+        // *   end = floor((offset+length) / self.shard_size)
+        //
+        // TODO: Even the documented logic above needs unit test validation for correctness
         let start = self.shard_index(offset);
         let end = if 0 == (offset + length as u64) % self.shard_size {
             self.shard_index(offset + length as u64) - 1
