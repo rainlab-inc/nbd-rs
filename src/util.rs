@@ -122,3 +122,30 @@ pub fn write_u32(num: u32, mut socket: TcpStream) {
 pub fn write_u64(num: u64, mut socket: TcpStream) {
     write_x_bytes!(u64, num, socket)
 }
+
+pub struct AlignedBlockIter {
+    pub from: usize,
+    pub blksize: usize,
+    pub to: usize,
+}
+
+impl Iterator for AlignedBlockIter {
+    type Item = std::ops::Range<usize>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.from == self.to {
+            return None;
+        }
+
+        let start = self.from;
+        let next_block_offset = self.blksize - (start % self.blksize);
+        let mut to = start + next_block_offset;
+        if to > self.to {
+            to = self.to;
+        }
+        let len = to - start;
+        let range = std::ops::Range { start, end: to };
+        self.from = self.from + len;
+        Some(range)
+    }
+}
