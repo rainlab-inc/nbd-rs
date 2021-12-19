@@ -188,45 +188,6 @@ impl SimpleObjectStorage for FileBackend {
         Ok(Propagation::Guaranteed)
     }
 
-    fn trim_object (&self, object_name: String, offset: u64, length: usize) -> Result<Propagation, Error> {
-        let open_files = self.open_files.read().unwrap();
-        match open_files.get_key_value(&object_name) {
-            Some(mapped_file) => {
-                let mut mapped_file_ptr = mapped_file.1.write().unwrap();
-                let size: usize = mapped_file_ptr.size() as usize;
-                let mut slice = vec![0_u8; size - (offset as usize + length)];
-                {
-                    let mut_pointer = mapped_file_ptr
-                        .map_mut(offset + length as u64, size - (offset as usize + length))
-                        .unwrap();
-                    slice.copy_from_slice(&mut_pointer);
-                }
-                let mut mut_pointer = mapped_file_ptr
-                    .map_mut(offset, size - offset as usize)
-                    .unwrap();
-                mut_pointer.copy_from_slice(&slice);
-            },
-            None => {
-                let path = self.obj_path(object_name.clone());
-                let mut file = OpenOptions::new()
-                    .write(true)
-                    .truncate(true)
-                    .open(path)?;
-                let size = file.metadata()?.len();
-                let mut slice = vec![0_u8; (size - (offset + length as u64)) as usize];
-                {
-                    file.seek(SeekFrom::Start(offset + length as u64));
-                    file.read_to_end(&mut slice);
-                }
-                file.seek(SeekFrom::Start(offset));
-                file.write_all(&slice);
-            }
-        }
-        // TODO: Consider file.sync_all()? or file.sync_data()?;
-        //       or at least to it async ? instead of dropping the file
-        Ok(Propagation::Complete)
-    }
-
     fn close(&mut self) {
         log::debug!("object::file::close");
     }

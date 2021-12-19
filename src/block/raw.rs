@@ -71,7 +71,7 @@ impl BlockStorage for RawBlock {
     }
 
     fn trim(&mut self, offset: u64, length: usize) -> Result<Propagation, Error> {
-        self.object_storage.trim_object(self.name.clone(), offset, length)
+        return Result<Propagation::Unsupported>;
     }
 
     fn close(&mut self) {
