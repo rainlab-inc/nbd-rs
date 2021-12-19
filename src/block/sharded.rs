@@ -233,7 +233,7 @@ impl BlockStorage for ShardedBlock {
         let mut overall_propagation : Propagation = Propagation::Guaranteed;
         for i in start..=end {
             let object_name = self.shard_name(self.shard_index(offset));
-            overall_propagation = self.object_storage.delete_object(object_name)?;
+            overall_propagation = self.object_storage.delete(object_name)?;
         }
         Ok(overall_propagation)
     }
