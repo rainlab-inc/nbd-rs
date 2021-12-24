@@ -279,13 +279,13 @@ mod tests {
     struct TestFolderCleanUp {
         folder_name: String
     }
-/*
+
     impl Drop for TestFolderCleanUp {
         fn drop(&mut self) {
             remove_dir_all(self.folder_name.clone());
         }
     }
-*/
+
     #[test]
     fn test_sharded_block_file_object_trim() {
         let folder_name = format!("__test_nbd_rs_sharded_file_trim_accuracy_{}", SystemTime::now()
