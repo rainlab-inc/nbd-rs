@@ -1,5 +1,5 @@
 use std::{
-    fs::{File, OpenOptions},
+    fs::{File, OpenOptions, remove_file},
     io::{Read, Write, Seek, SeekFrom, Error, ErrorKind},
     collections::{HashMap},
     sync::{Arc,RwLock},
@@ -135,7 +135,8 @@ impl SimpleObjectStorage for FileBackend {
     }
 
     fn delete(&self, object_name: String) -> Result<Propagation, Error> {
-        Err(Error::new(ErrorKind::Unsupported, "Not yet implemented"))
+        remove_file(self.obj_path(object_name))?;
+        Ok(Propagation::Guaranteed)
     }
 
     fn get_size(&self, object_name: String) -> Result<u64, Error> {

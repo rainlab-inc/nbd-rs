@@ -127,7 +127,7 @@ impl NBDSession {
         let datalen = util::read_u32(clone_stream!(self.socket));
         match req_type {
             proto::NBD_CMD_READ => { // 0
-                log::trace!("NBD_CMD_READ");
+                log::debug!("NBD_CMD_READ");
                 log::trace!("\t-->flags:{}, handle: {}, offset: {}, datalen: {}", flags, handle, offset, datalen);
                 log::trace!("STRUCTURED REPLY: {}", self.structured_reply);
                 let selected_export = self.selected_export.as_ref().unwrap();
@@ -172,7 +172,7 @@ impl NBDSession {
                 }
             }
             proto::NBD_CMD_WRITE => { // 1
-                log::trace!("NBD_CMD_WRITE");
+                log::debug!("NBD_CMD_WRITE");
                 log::trace!("\t-->flags:{}, handle: {}, offset: {}, datalen: {}", flags, handle, offset, datalen);
                 let mut data = vec![0; datalen as usize];
                 match clone_stream!(self.socket).read_exact(&mut data) {
@@ -281,7 +281,6 @@ impl NBDSession {
                 } else {
                     self.simple_reply(0_u32, handle);
                 }
-                drop(write_lock);
             }
             proto::NBD_CMD_TRIM => { // 4
                 log::debug!("NBD_CMD_TRIM");
@@ -291,6 +290,7 @@ impl NBDSession {
                     let mut driver = Arc::get_mut(&mut write_lock.driver).unwrap().try_write().unwrap();
                     let driver_name = driver.get_name();
                     let volume_size = driver.get_volume_size() as usize;
+                    log::trace!("offset: {}, length: {}", offset, datalen);
                     match driver.trim(offset, datalen as usize) {
                         Ok(_) => log::trace!("trimmed"),
                         Err(e) => log::error!("{}", e) // TODO: Reflect error to client
@@ -306,7 +306,6 @@ impl NBDSession {
                 } else {
                     self.simple_reply(0_u32, handle);
                 }
-                drop(write_lock);
             }
             proto::NBD_CMD_BLOCK_STATUS => { // 7
                 // fsync
