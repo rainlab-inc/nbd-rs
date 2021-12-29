@@ -412,7 +412,7 @@ impl NBDSession {
             let driver_name = driver.get_name();
             volume_size = driver.get_volume_size();
         }
-        let flags: u16 = proto::NBD_FLAG_HAS_FLAGS | proto::NBD_FLAG_SEND_FLUSH | proto::NBD_FLAG_SEND_RESIZE | proto::NBD_FLAG_SEND_WRITE_ZEROES | proto::NBD_FLAG_SEND_CACHE | proto::NBD_FLAG_SEND_TRIM;
+        let flags: u16 = proto::NBD_FLAG_HAS_FLAGS | proto::NBD_FLAG_SEND_FLUSH | proto::NBD_FLAG_SEND_RESIZE | proto::NBD_FLAG_SEND_CACHE | proto::NBD_FLAG_SEND_TRIM;
         util::write_u16(proto::NBD_INFO_EXPORT, clone_stream!(self.socket));
         util::write_u64(volume_size, clone_stream!(self.socket));
         util::write_u16(flags, clone_stream!(self.socket));
