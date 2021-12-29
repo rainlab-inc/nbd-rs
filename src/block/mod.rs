@@ -1,5 +1,5 @@
 use std::{
-    io::{Error},
+    io::{Error, ErrorKind},
 };
 
 mod config;
@@ -17,7 +17,9 @@ pub trait BlockStorage {
     fn init(&mut self);
     fn get_name(&self) -> String;
     fn get_volume_size(&self) -> u64;
-    fn supports_trim(&self) -> bool;
+    fn supports_trim(&self) -> bool {
+        false
+    }
     fn read(&self, offset: u64, length: usize) -> Result<Vec<u8>, Error>;
     fn write(&mut self, offset: u64, length: usize, data: &[u8]) -> Result<Propagation, Error>;
     fn flush(&mut self, offset: u64, length: usize) -> Result<Propagation, Error>;
@@ -40,5 +42,7 @@ pub trait BlockStorage {
     }
 
     // default sub-optimal implementation for `trim`
-    fn trim(&mut self, offset: u64, length: usize) -> Result<Propagation, Error>;
+    fn trim(&mut self, offset: u64, length: usize) -> Result<Propagation, Error> {
+        Err(Error::new(ErrorKind::Unsupported, "Not Supported"))
+    }
 }

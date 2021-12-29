@@ -18,7 +18,7 @@ pub fn object_storage_with_config(config: String) -> Result<Box<dyn ObjectStorag
 
     return match driver_name {
         "file" => {
-            Ok(Box::new(FileBackend::new(driver_config.replace("///", "./"))))
+            Ok(Box::new(FileBackend::new(driver_config.replace("///", ""))))
         },
         "s3" => {
             Ok(Box::new(S3Backend::new(driver_config)))

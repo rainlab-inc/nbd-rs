@@ -271,36 +271,28 @@ impl BlockStorage for ShardedBlock {
 }
 
 #[cfg(test)]
-mod tests {
+mod sharded_tests {
     use super::*;
     use std::{
-        time::{SystemTime, UNIX_EPOCH},
-        fs::{OpenOptions, create_dir, remove_dir_all},
-        ffi::{CString},
+        fs::{OpenOptions},
         io::{Write},
         path::{Path},
     };
-    extern crate libc;
+    use crate::util::test_utils::TempFolder;
 
-    struct TempFolder {
-        path: String
-    }
-
-    impl TempFolder {
-        fn new() -> TempFolder {
-            let ptr = CString::new("__test_nbd_rs_sharded_file_trim_accuracy_XXXXXX")
-                        .unwrap()
-                        .into_raw();
-            unsafe { let folder = libc::mkdtemp(ptr); }
-            let path = unsafe { CString::from_raw(ptr) }.into_string().unwrap();
-            TempFolder { path: path }
-        }
-    }
-
-    impl Drop for TempFolder {
-        fn drop(&mut self) {
-            remove_dir_all(self.path.clone());
-        }
+    fn init_sharded_block(size: usize, path: String) -> ShardedBlock {
+        let mut size_file = OpenOptions::new()
+                            .write(true)
+                            .create(true)
+                            .open(Path::new(&path).join("size"))
+                            .unwrap();
+        size_file.write(format!("{}", size).as_bytes());
+        let sharded_block = ShardedBlock::new(
+            String::from("test"),
+            format!("file:///{}", path)
+        );
+        assert!(sharded_block.size_of_volume() == size as u64);
+        sharded_block
     }
 
     #[test]
@@ -309,19 +301,9 @@ mod tests {
         // Trim range contains the first, the last, and the intermediary shards results in deletion
         // of all of the contained shards.
         let folder = TempFolder::new();
-        let mut size_file = OpenOptions::new()
-                            .write(true)
-                            .create(true)
-                            .open(format!("{}/size", folder.path.clone()))
-                            .unwrap();
-        size_file.write(b"16777216");
-        let mut sharded_block = ShardedBlock::new(
-            String::from("test"),
-            format!("file:///{}", folder.path.clone())
-        );
-        assert!(sharded_block.size_of_volume() == 16 * 1024 * 1024);
-        sharded_block.write(0_u64, 16 * 1024 * 1024 as usize, &[1_u8; 16 * 1024 * 1024]);
+        let mut sharded_block = init_sharded_block(16777216, folder.path.clone());
 
+        sharded_block.write(0_u64, 16 * 1024 * 1024 as usize, &[1_u8; 16 * 1024 * 1024]);
         sharded_block.trim(0_u64, 12 * 1024 * 1024 as usize);
         assert!(Path::new(&format!("{}/block-0", folder.path.clone())).exists() == false);
         assert!(Path::new(&format!("{}/block-1", folder.path.clone())).exists() == false);
@@ -334,17 +316,7 @@ mod tests {
         // Trim range contains the first shard, but partially contains the last shard results in
         // deletion of the first shard but partially write zeroes to the last shard
         let folder = TempFolder::new();
-        let mut size_file = OpenOptions::new()
-                            .write(true)
-                            .create(true)
-                            .open(format!("{}/size", folder.path.clone()))
-                            .unwrap();
-        size_file.write(b"16777216");
-        let mut sharded_block = ShardedBlock::new(
-            String::from("test"),
-            format!("file:///{}", folder.path.clone())
-        );
-        assert!(sharded_block.size_of_volume() == 16 * 1024 * 1024);
+        let mut sharded_block = init_sharded_block(16777216, folder.path.clone());
         sharded_block.write(0_u64, 16 * 1024 * 1024 as usize, &[1_u8; 16 * 1024 * 1024]);
 
         sharded_block.trim(0_u64, 12 * 1024 * 1024 - 10 as usize);
@@ -363,17 +335,7 @@ mod tests {
         // Trim range partially contains the first shard and fully contains the last shard results
         // in deletion of the last shard but partially write zeroes to the first shard
         let folder = TempFolder::new();
-        let mut size_file = OpenOptions::new()
-                            .write(true)
-                            .create(true)
-                            .open(format!("{}/size", folder.path.clone()))
-                            .unwrap();
-        size_file.write(b"16777216");
-        let mut sharded_block = ShardedBlock::new(
-            String::from("test"),
-            format!("file:///{}", folder.path.clone())
-        );
-        assert!(sharded_block.size_of_volume() == 16 * 1024 * 1024);
+        let mut sharded_block = init_sharded_block(16777216, folder.path.clone());
         sharded_block.write(0_u64, 16 * 1024 * 1024 as usize, &[1_u8; 16 * 1024 * 1024]);
 
         sharded_block.trim(10_u64, 12 * 1024 * 1024 - 10 as usize);
@@ -391,17 +353,7 @@ mod tests {
         // Case 4:
         // Trim range only contains a intermediary part of a single shard
         let folder = TempFolder::new();
-        let mut size_file = OpenOptions::new()
-                            .write(true)
-                            .create(true)
-                            .open(format!("{}/size", folder.path.clone()))
-                            .unwrap();
-        size_file.write(b"16777216");
-        let mut sharded_block = ShardedBlock::new(
-            String::from("test"),
-            format!("file:///{}", folder.path.clone())
-        );
-        assert!(sharded_block.size_of_volume() == 16 * 1024 * 1024);
+        let mut sharded_block = init_sharded_block(16777216, folder.path.clone());
         sharded_block.write(0_u64, 16 * 1024 * 1024 as usize, &[1_u8; 16 * 1024 * 1024]);
 
         sharded_block.trim(10_u64, 4 * 1024 * 1024 - 20 as usize);
@@ -418,17 +370,7 @@ mod tests {
         // Case 5:
         // Trim range overlaps from one shard to another, fully contains neither of them
         let folder = TempFolder::new();
-        let mut size_file = OpenOptions::new()
-                            .write(true)
-                            .create(true)
-                            .open(format!("{}/size", folder.path.clone()))
-                            .unwrap();
-        size_file.write(b"16777216");
-        let mut sharded_block = ShardedBlock::new(
-            String::from("test"),
-            format!("file:///{}", folder.path.clone())
-        );
-        assert!(sharded_block.size_of_volume() == 16 * 1024 * 1024);
+        let mut sharded_block = init_sharded_block(16777216, folder.path.clone());
         sharded_block.write(0_u64, 16 * 1024 * 1024 as usize, &[1_u8; 16 * 1024 * 1024]);
 
         sharded_block.trim(10_u64, 4 * 1024 * 1024 as usize);
