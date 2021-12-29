@@ -3,7 +3,7 @@
 
 #![macro_use]
 #![allow(dead_code)]
-use std::io::{Read, Write};
+use std::io::{Read, Write, Error};
 use std::net::TcpStream;
 
 #[repr(u8)]
@@ -147,5 +147,42 @@ impl Iterator for AlignedBlockIter {
         let range = std::ops::Range { start, end: to };
         self.from = self.from + len;
         Some(range)
+    }
+}
+
+#[cfg(test)]
+pub mod test_utils {
+    use super::*;
+    use std::{
+        fs::{remove_dir_all},
+        ffi::{CString},
+    };
+    extern crate libc;
+
+    pub struct TempFolder {
+        pub path: String
+    }
+
+    impl TempFolder {
+        pub fn new() -> TempFolder {
+            let tmp_dir = std::env::temp_dir();
+            let ptr = CString::new(format!("{}/nbd-rs-tmp-XXXXXX", tmp_dir.display()))
+                        .unwrap()
+                        .into_raw();
+            unsafe {
+                let folder = libc::mkdtemp(ptr);
+                if folder.is_null() {
+                    std::panic::panic_any(Error::last_os_error());
+                }
+            }
+            let path = unsafe { CString::from_raw(ptr) }.into_string().unwrap();
+            TempFolder { path: path }
+        }
+    }
+
+    impl Drop for TempFolder {
+        fn drop(&mut self) {
+            remove_dir_all(self.path.clone());
+        }
     }
 }
