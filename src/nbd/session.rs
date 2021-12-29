@@ -401,6 +401,7 @@ impl NBDSession {
             proto::NBD_REP_INFO,
             12
         );
+        let mut flags: u16 = proto::NBD_FLAG_HAS_FLAGS | proto::NBD_FLAG_SEND_FLUSH | proto::NBD_FLAG_SEND_RESIZE | proto::NBD_FLAG_SEND_CACHE;
         let volume_size: u64;
         if self.selected_export.is_none() {
             self.select_export(export_name);
@@ -411,8 +412,11 @@ impl NBDSession {
             let driver = Arc::get_mut(&mut write_lock.driver).unwrap().try_write().unwrap();
             let driver_name = driver.get_name();
             volume_size = driver.get_volume_size();
+
+            if driver.supports_trim() {
+                flags |= proto::NBD_FLAG_SEND_TRIM;
+            }
         }
-        let flags: u16 = proto::NBD_FLAG_HAS_FLAGS | proto::NBD_FLAG_SEND_FLUSH | proto::NBD_FLAG_SEND_RESIZE | proto::NBD_FLAG_SEND_CACHE | proto::NBD_FLAG_SEND_TRIM;
         util::write_u16(proto::NBD_INFO_EXPORT, clone_stream!(self.socket));
         util::write_u64(volume_size, clone_stream!(self.socket));
         util::write_u16(flags, clone_stream!(self.socket));

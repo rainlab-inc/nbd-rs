@@ -71,6 +71,10 @@ impl BlockStorage for ShardedBlock {
         self.volume_size
     }
 
+    fn supports_trim(&self) -> bool {
+        true
+    }
+
     fn read(&self, offset: u64, length: usize) -> Result<Vec<u8>, Error> {
         let mut buffer: Vec<u8> = Vec::new();
         let start = self.shard_index(offset);

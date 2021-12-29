@@ -55,6 +55,10 @@ impl BlockStorage for RawBlock {
         self.volume_size
     }
 
+    fn supports_trim(&self) -> bool {
+        false
+    }
+
     fn read(&self, offset: u64, length: usize) -> Result<Vec<u8>, Error> {
         self.object_storage
             .partial_read(self.name.clone(), offset, length)
