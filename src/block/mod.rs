@@ -39,8 +39,5 @@ pub trait BlockStorage {
     }
 
     // default sub-optimal implementation for `trim`
-    fn trim(&mut self, offset: u64, length: usize) -> Result<Propagation, Error> {
-        self.fill(offset, length, 0_u8);
-        return Ok(Propagation::Unsupported);
-    }
+    fn trim(&mut self, offset: u64, length: usize) -> Result<Propagation, Error>;
 }
