@@ -105,9 +105,9 @@ impl SimpleObjectStorage for FileBackend {
                     return false
                 }
                 match sfs.f_type {
-                    0xef53 | 0x9123683e | 0x58465342 | 0x01021994 => return true,
+                    libc::EXT4_SUPER_MAGIC | libc::BTRFS_SUPER_MAGIC | libc::XFS_SUPER_MAGIC | libc::TMPFS_MAGIC => return true,
                     _ => {
-                        log::debug!("Type of the filesystem is not one of: EXT4 | BTRFS | XFS | TMPFS!")
+                        log::debug!("Type of the filesystem is not one of: EXT4 | BTRFS | XFS | TMPFS!");
                         return false
                     }
                 }
