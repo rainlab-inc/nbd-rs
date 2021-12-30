@@ -4,7 +4,9 @@ use std::{
     collections::{HashMap},
     sync::{Arc,RwLock},
     path::{Path,PathBuf},
-    os::unix::io::{AsRawFd}
+    ffi::{CString},
+    mem::{MaybeUninit},
+    os::unix::io::{AsRawFd},
 };
 
 use mmap_safe::{MappedFile};
@@ -80,7 +82,23 @@ impl SimpleObjectStorage for FileBackend {
     }
 
     fn supports_trim(&self) -> bool {
-        true
+        #[cfg(target_os = "linux")]
+        {
+            let ptr = match CString::new(self.folder_path.clone()) {
+                Ok(p) => p.into_raw(),
+                Err(_) => return false
+            };
+            let uninit: MaybeUninit<libc::statfs> = MaybeUninit::uninit();
+            unsafe {
+                match libc::statfs(ptr, &mut uninit.assume_init()) as i64 {
+                    // Magics of EXT4, BTRFS, XFS, TMPFS respectively
+                    0xef53_i64 | 0x9123683e_i64 | 0x58465342_i64 | 0x01021994_i64 => return true,
+                    _ => return false
+                }
+            }
+        }
+        #[cfg(not(target_os = "linux"))]
+        return false;
     }
 
     fn read(&self, object_name: String) -> Result<Vec<u8>, Error> {
