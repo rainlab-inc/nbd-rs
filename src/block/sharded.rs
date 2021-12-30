@@ -71,6 +71,10 @@ impl BlockStorage for ShardedBlock {
         self.volume_size
     }
 
+    fn supports_trim(&self) -> bool {
+        true
+    }
+
     fn read(&self, offset: u64, length: usize) -> Result<Vec<u8>, Error> {
         let mut buffer: Vec<u8> = Vec::new();
         let start = self.shard_index(offset);
@@ -94,7 +98,10 @@ impl BlockStorage for ShardedBlock {
                     continue;
                 }
                 if i == end {
-                    let read_size = ((length as u64 + offset % self.shard_size) % self.shard_size) as usize;
+                    let mut read_size = ((length as u64 + offset) % self.shard_size) as usize;
+                    if read_size == 0 {
+                        read_size = self.shard_size as usize;
+                    }
                     let buf = self.object_storage
                         .partial_read(shard_name.clone(), 0, read_size)?;
                     buffer.extend_from_slice(&buf);
@@ -175,7 +182,7 @@ impl BlockStorage for ShardedBlock {
             }
 
             written += write_len;
-            cur_offset += written;
+            cur_offset += write_len;
             if (propagated as u8) >= (Propagation::Queued as u8) {
                 log::debug!("storage::write(iteration: {}, {})", cur_shard, propagated as u8);
             } else {
@@ -215,8 +222,164 @@ impl BlockStorage for ShardedBlock {
         Ok(overall_propagation)
     }
 
+    fn trim(&mut self, offset: u64, length: usize) -> Result<Propagation, Error> {
+        let start = self.shard_index(offset);
+        let end = if 0 == (offset + length as u64) % self.shard_size {
+            self.shard_index(offset + length as u64) - 1
+        } else {
+            self.shard_index(offset + length as u64)
+        };
+        log::debug!("storage::trim(start: {}, end: {})", start, end);
+        let mut overall_propagation : Propagation = Propagation::Guaranteed;
+        for i in start..=end {
+            let object_name = self.shard_name(i);
+            if i == start {
+                let trim_size = std::cmp::min((self.shard_size - offset % self.shard_size) as usize, length);
+                if trim_size as u64 % self.shard_size == 0 {
+                    overall_propagation = self.object_storage.delete(object_name)?;
+                } else {
+                    overall_propagation = self.object_storage.partial_write(
+                        object_name,
+                        offset % self.shard_size,
+                        trim_size,
+                        &vec![0_u8; trim_size]
+                    )?;
+                }
+            } else if i == end {
+                let trim_size = ((length as u64 + offset % self.shard_size) % self.shard_size) as usize;
+                if trim_size as u64 % self.shard_size == 0 {
+                    overall_propagation = self.object_storage.delete(object_name)?;
+                } else {
+                    overall_propagation = self.object_storage.partial_write(
+                        object_name,
+                        0,
+                        trim_size,
+                        &vec![0_u8; trim_size]
+                    )?;
+                }
+            } else {
+                overall_propagation = self.object_storage.delete(object_name)?;
+            }
+        }
+        Ok(overall_propagation)
+    }
+
     fn close(&mut self) {
         log::debug!("storage::close");
         self.object_storage.close();
+    }
+}
+
+#[cfg(test)]
+mod sharded_tests {
+    use super::*;
+    use std::{
+        fs::{OpenOptions},
+        io::{Write},
+        path::{Path},
+    };
+    use crate::util::test_utils::TempFolder;
+
+    fn init_sharded_block(size: usize, path: String) -> ShardedBlock {
+        let mut size_file = OpenOptions::new()
+                            .write(true)
+                            .create(true)
+                            .open(Path::new(&path).join("size"))
+                            .unwrap();
+        size_file.write(format!("{}", size).as_bytes());
+        let sharded_block = ShardedBlock::new(
+            String::from("test"),
+            format!("file:///{}", path)
+        );
+        assert!(sharded_block.size_of_volume() == size as u64);
+        sharded_block
+    }
+
+    #[test]
+    fn test_sharded_block_file_object_trim_case_1() {
+        // Case 1:
+        // Trim range contains the first, the last, and the intermediary shards results in deletion
+        // of all of the contained shards.
+        let folder = TempFolder::new();
+        let mut sharded_block = init_sharded_block(16777216, folder.path.clone());
+
+        sharded_block.write(0_u64, 16 * 1024 * 1024 as usize, &[1_u8; 16 * 1024 * 1024]);
+        sharded_block.trim(0_u64, 12 * 1024 * 1024 as usize);
+        assert!(Path::new(&format!("{}/block-0", folder.path.clone())).exists() == false);
+        assert!(Path::new(&format!("{}/block-1", folder.path.clone())).exists() == false);
+        assert!(Path::new(&format!("{}/block-2", folder.path.clone())).exists() == false);
+    }
+
+    #[test]
+    fn test_sharded_block_file_object_trim_case_2() {
+        // Case 2:
+        // Trim range contains the first shard, but partially contains the last shard results in
+        // deletion of the first shard but partially write zeroes to the last shard
+        let folder = TempFolder::new();
+        let mut sharded_block = init_sharded_block(16777216, folder.path.clone());
+        sharded_block.write(0_u64, 16 * 1024 * 1024 as usize, &[1_u8; 16 * 1024 * 1024]);
+
+        sharded_block.trim(0_u64, 12 * 1024 * 1024 - 10 as usize);
+        assert!(Path::new(&format!("{}/block-0", folder.path.clone())).exists() == false);
+        assert!(Path::new(&format!("{}/block-1", folder.path.clone())).exists() == false);
+        assert!(Path::new(&format!("{}/block-2", folder.path.clone())).exists() == true);
+        let read_result = sharded_block.read(8 * 1024 * 1024 as u64, sharded_block.shard_size as usize).unwrap();
+        let mut expected_read_result = vec![0_u8; sharded_block.shard_size as usize - 10];
+        expected_read_result.extend_from_slice(&vec![1_u8; 10]);
+        assert!(read_result == expected_read_result);
+    }
+
+    #[test]
+    fn test_sharded_block_file_object_trim_case_3() {
+        // Case 3:
+        // Trim range partially contains the first shard and fully contains the last shard results
+        // in deletion of the last shard but partially write zeroes to the first shard
+        let folder = TempFolder::new();
+        let mut sharded_block = init_sharded_block(16777216, folder.path.clone());
+        sharded_block.write(0_u64, 16 * 1024 * 1024 as usize, &[1_u8; 16 * 1024 * 1024]);
+
+        sharded_block.trim(10_u64, 12 * 1024 * 1024 - 10 as usize);
+        assert!(Path::new(&format!("{}/block-0", folder.path.clone())).exists() == true);
+        assert!(Path::new(&format!("{}/block-1", folder.path.clone())).exists() == false);
+        assert!(Path::new(&format!("{}/block-2", folder.path.clone())).exists() == false);
+        let read_result = sharded_block.read(0_u64, sharded_block.shard_size as usize).unwrap();
+        let mut expected_read_result = vec![1_u8; 10];
+        expected_read_result.extend_from_slice(&vec![0_u8; sharded_block.shard_size as usize - 10]);
+        assert!(read_result == expected_read_result);
+    }
+
+    #[test]
+    fn test_sharded_block_file_object_trim_case_4() {
+        // Case 4:
+        // Trim range only contains a intermediary part of a single shard
+        let folder = TempFolder::new();
+        let mut sharded_block = init_sharded_block(16777216, folder.path.clone());
+        sharded_block.write(0_u64, 16 * 1024 * 1024 as usize, &[1_u8; 16 * 1024 * 1024]);
+
+        sharded_block.trim(10_u64, 4 * 1024 * 1024 - 20 as usize);
+        assert!(Path::new(&format!("{}/block-0", folder.path.clone())).exists() == true);
+        let read_result = sharded_block.read(0_u64, sharded_block.shard_size as usize).unwrap();
+        let mut expected_read_result = vec![1_u8; 10];
+        expected_read_result.extend_from_slice(&vec![0_u8; sharded_block.shard_size as usize - 20]);
+        expected_read_result.extend_from_slice(&vec![1_u8; 10]);
+        assert!(read_result == expected_read_result);
+    }
+
+    #[test]
+    fn test_sharded_block_file_object_trim_case_5() {
+        // Case 5:
+        // Trim range overlaps from one shard to another, fully contains neither of them
+        let folder = TempFolder::new();
+        let mut sharded_block = init_sharded_block(16777216, folder.path.clone());
+        sharded_block.write(0_u64, 16 * 1024 * 1024 as usize, &[1_u8; 16 * 1024 * 1024]);
+
+        sharded_block.trim(10_u64, 4 * 1024 * 1024 as usize);
+        assert!(Path::new(&format!("{}/block-0", folder.path.clone())).exists() == true);
+        assert!(Path::new(&format!("{}/block-1", folder.path.clone())).exists() == true);
+        let read_result = sharded_block.read(0_u64, 2 * sharded_block.shard_size as usize).unwrap();
+        let mut expected_read_result = vec![1_u8; 10];
+        expected_read_result.extend_from_slice(&vec![0_u8; sharded_block.shard_size as usize]);
+        expected_read_result.extend_from_slice(&vec![1_u8; sharded_block.shard_size as usize - 10]);
+        assert!(read_result == expected_read_result);
     }
 }

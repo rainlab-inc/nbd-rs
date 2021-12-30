@@ -127,7 +127,7 @@ impl NBDSession {
         let datalen = util::read_u32(clone_stream!(self.socket));
         match req_type {
             proto::NBD_CMD_READ => { // 0
-                log::trace!("NBD_CMD_READ");
+                log::debug!("NBD_CMD_READ");
                 log::trace!("\t-->flags:{}, handle: {}, offset: {}, datalen: {}", flags, handle, offset, datalen);
                 log::trace!("STRUCTURED REPLY: {}", self.structured_reply);
                 let selected_export = self.selected_export.as_ref().unwrap();
@@ -172,7 +172,7 @@ impl NBDSession {
                 }
             }
             proto::NBD_CMD_WRITE => { // 1
-                log::trace!("NBD_CMD_WRITE");
+                log::debug!("NBD_CMD_WRITE");
                 log::trace!("\t-->flags:{}, handle: {}, offset: {}, datalen: {}", flags, handle, offset, datalen);
                 let mut data = vec![0; datalen as usize];
                 match clone_stream!(self.socket).read_exact(&mut data) {
@@ -268,7 +268,7 @@ impl NBDSession {
                     let volume_size = driver.get_volume_size() as usize;
                     match driver.flush(0, volume_size) {
                         Ok(_) => log::trace!("flushed"),
-                        Err(e) => log::error!("{}", e)
+                        Err(e) => log::error!("{}", e) // TODO: Reflect error to client
                     }
                 }
                 if self.structured_reply == true {
@@ -281,7 +281,31 @@ impl NBDSession {
                 } else {
                     self.simple_reply(0_u32, handle);
                 }
-                drop(write_lock);
+            }
+            proto::NBD_CMD_TRIM => { // 4
+                log::debug!("NBD_CMD_TRIM");
+                let selected_export = self.selected_export.as_ref().unwrap();
+                let mut write_lock = selected_export.try_write().unwrap();
+                {
+                    let mut driver = Arc::get_mut(&mut write_lock.driver).unwrap().try_write().unwrap();
+                    let driver_name = driver.get_name();
+                    let volume_size = driver.get_volume_size() as usize;
+                    log::trace!("offset: {}, length: {}", offset, datalen);
+                    match driver.trim(offset, datalen as usize) {
+                        Ok(_) => log::trace!("trimmed"),
+                        Err(e) => log::error!("{}", e) // TODO: Reflect error to client
+                    }
+                }
+                if self.structured_reply == true {
+                    self.structured_reply(
+                        proto::NBD_REPLY_FLAG_DONE,
+                        proto::NBD_REPLY_TYPE_NONE,
+                        handle,
+                        0
+                    );
+                } else {
+                    self.simple_reply(0_u32, handle);
+                }
             }
             proto::NBD_CMD_BLOCK_STATUS => { // 7
                 // fsync
@@ -377,6 +401,7 @@ impl NBDSession {
             proto::NBD_REP_INFO,
             12
         );
+        let mut flags: u16 = proto::NBD_FLAG_HAS_FLAGS | proto::NBD_FLAG_SEND_FLUSH | proto::NBD_FLAG_SEND_RESIZE | proto::NBD_FLAG_SEND_CACHE;
         let volume_size: u64;
         if self.selected_export.is_none() {
             self.select_export(export_name);
@@ -387,8 +412,10 @@ impl NBDSession {
             let driver = Arc::get_mut(&mut write_lock.driver).unwrap().try_write().unwrap();
             let driver_name = driver.get_name();
             volume_size = driver.get_volume_size();
+            if driver.supports_trim() {
+                flags = flags | proto::NBD_FLAG_SEND_TRIM
+            }
         }
-        let flags: u16 = proto::NBD_FLAG_HAS_FLAGS | proto::NBD_FLAG_SEND_FLUSH | proto::NBD_FLAG_SEND_RESIZE | proto::NBD_FLAG_SEND_WRITE_ZEROES | proto::NBD_FLAG_SEND_CACHE | proto::NBD_FLAG_SEND_TRIM;
         util::write_u16(proto::NBD_INFO_EXPORT, clone_stream!(self.socket));
         util::write_u64(volume_size, clone_stream!(self.socket));
         util::write_u16(flags, clone_stream!(self.socket));

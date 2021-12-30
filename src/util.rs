@@ -3,21 +3,22 @@
 
 #![macro_use]
 #![allow(dead_code)]
-use std::io::{Read, Write};
+use std::io::{Read, Write, Error};
 use std::net::TcpStream;
 
 #[repr(u8)]
 #[derive(Copy, Clone, Debug)]
 pub enum Propagation {
-   Guaranteed  = 255, // all layers we know reports completion, including external ones, to the final real disk
-   Complete    = 127, // complete on our end, handed over to any external system if there is.
-   InProgress  = 126, // background, but started
-   Queued      = 125, // will do
-   Unsure      =  32,  // execution attempted, but response from one layer taints response
-   Redundant   =  24,  // skipped, because wasn't necessary / done already
-   Noop        =  16,
-   Ignored     =  15,
-   Unsupported =  14,
+   Guaranteed         = 255, // all layers we know reports completion, including external ones, to the final real disk
+   Complete           = 127, // complete on our end, handed over to any external system if there is.
+   InProgress         = 126, // background, but started
+   Queued             = 125, // will do
+   AppliedDifferently = 124, // Not exactly as requested (ex: fill-zeroes instead of trim)
+   Unsure             =  32,  // execution attempted, but response from one layer taints response
+   Redundant          =  24,  // skipped, because wasn't necessary / done already
+   Noop               =  16,
+   Ignored            =  15,
+   Unsupported        =  14,
    // Failed      : u8 = 0,   // Instead of this, Result/Err should be used
 }
 
@@ -120,4 +121,68 @@ pub fn write_u32(num: u32, mut socket: TcpStream) {
 
 pub fn write_u64(num: u64, mut socket: TcpStream) {
     write_x_bytes!(u64, num, socket)
+}
+
+pub struct AlignedBlockIter {
+    pub from: usize,
+    pub blksize: usize,
+    pub to: usize,
+}
+
+impl Iterator for AlignedBlockIter {
+    type Item = std::ops::Range<usize>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.from == self.to {
+            return None;
+        }
+
+        let start = self.from;
+        let next_block_offset = self.blksize - (start % self.blksize);
+        let mut to = start + next_block_offset;
+        if to > self.to {
+            to = self.to;
+        }
+        let len = to - start;
+        let range = std::ops::Range { start, end: to };
+        self.from = self.from + len;
+        Some(range)
+    }
+}
+
+#[cfg(test)]
+pub mod test_utils {
+    use super::*;
+    use std::{
+        fs::{remove_dir_all},
+        ffi::{CString},
+    };
+    extern crate libc;
+
+    pub struct TempFolder {
+        pub path: String
+    }
+
+    impl TempFolder {
+        pub fn new() -> TempFolder {
+            let tmp_dir = std::env::temp_dir();
+            let ptr = CString::new(format!("{}/nbd-rs-tmp-XXXXXX", tmp_dir.display()))
+                        .unwrap()
+                        .into_raw();
+            unsafe {
+                let folder = libc::mkdtemp(ptr);
+                if folder.is_null() {
+                    std::panic::panic_any(Error::last_os_error());
+                }
+            }
+            let path = unsafe { CString::from_raw(ptr) }.into_string().unwrap();
+            TempFolder { path: path }
+        }
+    }
+
+    impl Drop for TempFolder {
+        fn drop(&mut self) {
+            remove_dir_all(self.path.clone());
+        }
+    }
 }
