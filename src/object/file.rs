@@ -4,6 +4,7 @@ use std::{
     collections::{HashMap},
     sync::{Arc,RwLock},
     path::{Path,PathBuf},
+    os::unix::io::{AsRawFd}
 };
 
 use mmap_safe::{MappedFile};
@@ -76,6 +77,10 @@ impl SimpleObjectStorage for FileBackend {
     fn exists(&self, object_name: String) -> Result<bool, Error> {
         let path = self.obj_path(object_name.clone());
         return Ok(path.is_file() && path.exists())
+    }
+
+    fn supports_trim(&self) -> bool {
+        true
     }
 
     fn read(&self, object_name: String) -> Result<Vec<u8>, Error> {
@@ -186,6 +191,26 @@ impl SimpleObjectStorage for FileBackend {
         //     .map_err(|(e, _)| e)
         //     .unwrap();
         // mut_pointer.flush();
+        Ok(Propagation::Guaranteed)
+    }
+
+    fn trim_object (&self, object_name: String, offset: u64, length: usize) -> Result<Propagation, Error> { //hints fallocate
+        let mut open_files = self.open_files.write().unwrap();
+        let mmap_file = open_files.remove_entry(&object_name);
+        let path = self.obj_path(object_name.clone());
+        let file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .open(path)?;
+        unsafe { libc::fallocate(
+            file.as_raw_fd(),
+            libc::FALLOC_FL_KEEP_SIZE + libc::FALLOC_FL_PUNCH_HOLE,
+            offset as libc::off_t,
+            length as libc::off_t
+        ); }
+        if mmap_file.is_some() {
+            self.get_file(object_name);
+        }
         Ok(Propagation::Guaranteed)
     }
 

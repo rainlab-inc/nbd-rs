@@ -56,7 +56,7 @@ impl BlockStorage for RawBlock {
     }
 
     fn supports_trim(&self) -> bool {
-        false
+        self.object_storage.supports_trim()
     }
 
     fn read(&self, offset: u64, length: usize) -> Result<Vec<u8>, Error> {
@@ -72,6 +72,11 @@ impl BlockStorage for RawBlock {
     fn flush(&mut self, offset: u64, length: usize) -> Result<Propagation, Error> {
         self.object_storage
             .persist_object(self.name.clone())
+    }
+
+    fn trim(&mut self, offset: u64, length: usize) -> Result<Propagation, Error> {
+        self.object_storage
+            .trim_object(self.name.clone(), offset, length)
     }
 
     fn close(&mut self) {

@@ -72,7 +72,7 @@ impl BlockStorage for ShardedBlock {
     }
 
     fn supports_trim(&self) -> bool {
-        true
+        self.object_storage.supports_trim()
     }
 
     fn read(&self, offset: u64, length: usize) -> Result<Vec<u8>, Error> {
