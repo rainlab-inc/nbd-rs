@@ -22,6 +22,9 @@ pub trait SimpleObjectStorage {
     // simplest interface
     fn exists   (&self, object_name: String) -> Result<bool, Error>;
     fn get_size (&self, object_name: String) -> Result<u64, Error>;
+    fn supports_trim(&self) -> bool {
+        false
+    }
     fn read     (&self, object_name: String) -> Result<Vec<u8>, Error>;
     fn write    (&self, object_name: String, data: &[u8]) -> Result<Propagation, Error>;
     fn delete   (&self, object_name: String) -> Result<Propagation, Error>;
@@ -31,6 +34,9 @@ pub trait SimpleObjectStorage {
     fn start_operations_on_object (&self, object_name: String) -> Result<(), Error>; // hints open  (or ++refCount==1?open)
     fn end_operations_on_object   (&self, object_name: String) -> Result<(), Error>; // hints close (or --refCount==0?close)
     fn persist_object             (&self, object_name: String) -> Result<Propagation, Error>; // hints flush
+    fn trim_object                (&self, object_name: String, offset: u64, length: usize) -> Result<Propagation, Error> { //hints fallocate
+        Err(Error::new(ErrorKind::Unsupported, "Trim Not Supported"))
+    }
     fn close                      (&mut self);
 }
 

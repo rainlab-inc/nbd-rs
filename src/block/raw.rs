@@ -55,6 +55,10 @@ impl BlockStorage for RawBlock {
         self.volume_size
     }
 
+    fn supports_trim(&self) -> bool {
+        self.object_storage.supports_trim()
+    }
+
     fn read(&self, offset: u64, length: usize) -> Result<Vec<u8>, Error> {
         self.object_storage
             .partial_read(self.name.clone(), offset, length)
@@ -68,6 +72,11 @@ impl BlockStorage for RawBlock {
     fn flush(&mut self, offset: u64, length: usize) -> Result<Propagation, Error> {
         self.object_storage
             .persist_object(self.name.clone())
+    }
+
+    fn trim(&mut self, offset: u64, length: usize) -> Result<Propagation, Error> {
+        self.object_storage
+            .trim_object(self.name.clone(), offset, length)
     }
 
     fn close(&mut self) {

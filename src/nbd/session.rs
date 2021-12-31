@@ -412,8 +412,9 @@ impl NBDSession {
             let driver = Arc::get_mut(&mut write_lock.driver).unwrap().try_write().unwrap();
             let driver_name = driver.get_name();
             volume_size = driver.get_volume_size();
+
             if driver.supports_trim() {
-                flags = flags | proto::NBD_FLAG_SEND_TRIM
+                flags |= proto::NBD_FLAG_SEND_TRIM;
             }
         }
         util::write_u16(proto::NBD_INFO_EXPORT, clone_stream!(self.socket));

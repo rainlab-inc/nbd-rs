@@ -4,6 +4,9 @@ use std::{
     collections::{HashMap},
     sync::{Arc,RwLock},
     path::{Path,PathBuf},
+    ffi::{CString},
+    mem::{MaybeUninit},
+    os::unix::io::{AsRawFd},
 };
 
 use mmap_safe::{MappedFile};
@@ -76,6 +79,39 @@ impl SimpleObjectStorage for FileBackend {
     fn exists(&self, object_name: String) -> Result<bool, Error> {
         let path = self.obj_path(object_name.clone());
         return Ok(path.is_file() && path.exists())
+    }
+
+    fn supports_trim(&self) -> bool {
+        #[cfg(target_os = "linux")]
+        {
+            let path = if &self.folder_path != "" {
+                self.folder_path.clone()
+            } else {
+                String::from("/")
+            };
+            let ptr = match CString::new(path.clone()) {
+                Ok(p) => p.into_raw(),
+                Err(e) => panic!("Error while creating CString of path: {:?}. Full error: {}", path.clone(), e)
+            };
+            let uninit: MaybeUninit<libc::statfs> = MaybeUninit::uninit();
+            unsafe {
+                let sfs = &mut uninit.assume_init();
+                let result = libc::statfs(ptr, sfs);
+                if result != 0 {
+                    log::warn!("Error on path: {:?}. Full error: {:?}", path.clone(), Error::last_os_error());
+                    return false
+                }
+                match sfs.f_type {
+                    libc::EXT4_SUPER_MAGIC | libc::BTRFS_SUPER_MAGIC | libc::XFS_SUPER_MAGIC | libc::TMPFS_MAGIC => return true,
+                    _ => {
+                        log::debug!("Type of the filesystem is not one of: EXT4 | BTRFS | XFS | TMPFS!");
+                        return false
+                    }
+                }
+            }
+        }
+        #[cfg(not(target_os = "linux"))]
+        return false;
     }
 
     fn read(&self, object_name: String) -> Result<Vec<u8>, Error> {
@@ -187,6 +223,28 @@ impl SimpleObjectStorage for FileBackend {
         //     .unwrap();
         // mut_pointer.flush();
         Ok(Propagation::Guaranteed)
+    }
+
+    fn trim_object (&self, object_name: String, offset: u64, length: usize) -> Result<Propagation, Error> { //hints fallocate
+        #[cfg(target_os = "linux")]
+        {
+            let mut open_files = self.open_files.write().unwrap();
+            let mmap_file = open_files.remove_entry(&object_name);
+            let path = self.obj_path(object_name.clone());
+            let file = OpenOptions::new()
+                .write(true)
+                .create(true)
+                .open(path)?;
+            unsafe { libc::fallocate(
+                file.as_raw_fd(),
+                libc::FALLOC_FL_KEEP_SIZE + libc::FALLOC_FL_PUNCH_HOLE,
+                offset as libc::off_t,
+                length as libc::off_t
+            ); }
+            Ok(Propagation::Guaranteed)
+        }
+        #[cfg(not(target_os = "linux"))]
+        Err(Error::new(ErrorKind::Unsupported, "Trim Not Supported"))
     }
 
     fn close(&mut self) {
