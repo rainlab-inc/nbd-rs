@@ -241,9 +241,6 @@ impl SimpleObjectStorage for FileBackend {
                 offset as libc::off_t,
                 length as libc::off_t
             ); }
-            if mmap_file.is_some() {
-                self.get_file(object_name);
-            }
             Ok(Propagation::Guaranteed)
         }
         #[cfg(not(target_os = "linux"))]
