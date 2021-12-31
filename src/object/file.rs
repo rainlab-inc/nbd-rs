@@ -91,10 +91,7 @@ impl SimpleObjectStorage for FileBackend {
             };
             let ptr = match CString::new(path.clone()) {
                 Ok(p) => p.into_raw(),
-                Err(e) => {
-                    log::warn!("Error while creating CString of path: {:?}. Full error: {}", path.clone(), e);
-                    return false
-                }
+                Err(e) => panic!("Error while creating CString of path: {:?}. Full error: {}", path.clone(), e)
             };
             let uninit: MaybeUninit<libc::statfs> = MaybeUninit::uninit();
             unsafe {
@@ -229,23 +226,28 @@ impl SimpleObjectStorage for FileBackend {
     }
 
     fn trim_object (&self, object_name: String, offset: u64, length: usize) -> Result<Propagation, Error> { //hints fallocate
-        let mut open_files = self.open_files.write().unwrap();
-        let mmap_file = open_files.remove_entry(&object_name);
-        let path = self.obj_path(object_name.clone());
-        let file = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .open(path)?;
-        unsafe { libc::fallocate(
-            file.as_raw_fd(),
-            libc::FALLOC_FL_KEEP_SIZE + libc::FALLOC_FL_PUNCH_HOLE,
-            offset as libc::off_t,
-            length as libc::off_t
-        ); }
-        if mmap_file.is_some() {
-            self.get_file(object_name);
+        #[cfg(target_os = "linux")]
+        {
+            let mut open_files = self.open_files.write().unwrap();
+            let mmap_file = open_files.remove_entry(&object_name);
+            let path = self.obj_path(object_name.clone());
+            let file = OpenOptions::new()
+                .write(true)
+                .create(true)
+                .open(path)?;
+            unsafe { libc::fallocate(
+                file.as_raw_fd(),
+                libc::FALLOC_FL_KEEP_SIZE + libc::FALLOC_FL_PUNCH_HOLE,
+                offset as libc::off_t,
+                length as libc::off_t
+            ); }
+            if mmap_file.is_some() {
+                self.get_file(object_name);
+            }
+            Ok(Propagation::Guaranteed)
         }
-        Ok(Propagation::Guaranteed)
+        #[cfg(not(target_os = "linux"))]
+        Err(Error::new(ErrorKind::Unsupported, "Trim Not Supported"))
     }
 
     fn close(&mut self) {

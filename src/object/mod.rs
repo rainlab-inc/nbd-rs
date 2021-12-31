@@ -35,7 +35,7 @@ pub trait SimpleObjectStorage {
     fn end_operations_on_object   (&self, object_name: String) -> Result<(), Error>; // hints close (or --refCount==0?close)
     fn persist_object             (&self, object_name: String) -> Result<Propagation, Error>; // hints flush
     fn trim_object                (&self, object_name: String, offset: u64, length: usize) -> Result<Propagation, Error> { //hints fallocate
-        Err(Error::new(ErrorKind::Unsupported, "Not Supported"))
+        Err(Error::new(ErrorKind::Unsupported, "Trim Not Supported"))
     }
     fn close                      (&mut self);
 }
