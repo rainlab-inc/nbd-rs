@@ -5,6 +5,7 @@ use std::{
     net::{SocketAddr, TcpListener, TcpStream},
     sync::{Arc, RwLock},
     collections::{HashMap},
+    rc::Rc,
     cell::RefCell,
 };
 
@@ -86,19 +87,19 @@ impl NBDServer {
                     break;
                 }
             };
-            let mut session = self.handle_connection(clone_stream!(stream));
+            let session = self.handle_connection(Rc::new(RefCell::new(stream)));
             session.handle();
         }
 
         log::info!("Done");
     }
 
-    fn handle_connection(&mut self, socket: TcpStream /*, addr: SocketAddr*/) -> NBDSession {
+    fn handle_connection(&mut self, socket: Rc<RefCell<TcpStream>> /*, addr: SocketAddr*/) -> NBDSession {
         // TODO: Process socket
-        let flags = self.handshake(clone_stream!(socket));
+        let flags = self.handshake(Rc::clone(&socket));
         // TODO: implement Default for NBDSession
         let session = NBDSession::new(
-            socket,
+            Rc::clone(&socket),
             flags,
             false,
             String::from(""),
@@ -112,18 +113,24 @@ impl NBDServer {
         session
     }
 
-    fn handshake(&mut self, mut socket: TcpStream) -> [bool; 2] {
+    fn handshake(&mut self, socket: Rc<RefCell<TcpStream>>) -> [bool; 2] {
         log::debug!("Handshake started...");
         let newstyle = proto::NBD_FLAG_FIXED_NEWSTYLE;
         let no_zeroes = proto::NBD_FLAG_NO_ZEROES;
         let handshake_flags = (newstyle | no_zeroes) as u16;
 
-        write!(b"NBDMAGIC", socket);
-        write!(b"IHAVEOPT", socket);
-        util::write_u16(handshake_flags, clone_stream!(socket));
+        {
+            let socket = Rc::clone(&socket);
+            let mut m_socket = socket.borrow_mut();
+            write!(b"NBDMAGIC", &mut m_socket);
+            write!(b"IHAVEOPT", &mut m_socket);
+            util::write_u16(handshake_flags, &mut m_socket);
+        }
         log::trace!("Initial message sent");
 
-        let client_flags = util::read_u32(clone_stream!(socket));
+        let socket = Rc::clone(&socket);
+        let client_flags = util::read_u32(&socket.borrow());
+        drop(socket);
         let flags_list = [
             client_flags & (proto::NBD_FLAG_C_FIXED_NEWSTYLE as u32) != 0,
             client_flags & (proto::NBD_FLAG_C_NO_ZEROES as u32) != 0,

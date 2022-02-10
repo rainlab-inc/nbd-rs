@@ -22,12 +22,6 @@ pub enum Propagation {
    // Failed      : u8 = 0,   // Instead of this, Result/Err should be used
 }
 
-macro_rules! clone_stream {
-    ($stream:expr) => {
-        ($stream.try_clone().expect("Err on cloning stream"))
-    };
-}
-
 /*
 macro_rules! convert_ux_to_bytes {
     ($ty:ty, $num:expr) => {{
@@ -87,39 +81,39 @@ pub fn convert_u64_to_bytes(num: u64) -> Vec<u8> {
 }
 */
 
-pub fn read_u8(mut socket: TcpStream) -> u8 {
+pub fn read_u8(mut socket: &TcpStream) -> u8 {
     read_x_bytes!(u8, 1, socket)
 }
 
-pub fn read_u16(mut socket: TcpStream) -> u16 {
+pub fn read_u16(mut socket: &TcpStream) -> u16 {
     read_x_bytes!(u16, 2, socket)
 }
 
-pub fn read_u32(mut socket: TcpStream) -> u32 {
+pub fn read_u32(mut socket: &TcpStream) -> u32 {
     read_x_bytes!(u32, 4, socket)
 }
 
-pub fn read_u64(mut socket: TcpStream) -> u64 {
+pub fn read_u64(mut socket: &TcpStream) -> u64 {
     read_x_bytes!(u64, 8, socket)
 }
 
-pub fn read_string(size: usize, mut socket: TcpStream) -> String {
+pub fn read_string(size: usize, socket: &mut TcpStream) -> String {
     read_string!(size, socket)
 }
 
-pub fn write_u8(num: u8, mut socket: TcpStream) {
+pub fn write_u8(num: u8, socket: &mut TcpStream) {
     write_x_bytes!(u8, num, socket)
 }
 
-pub fn write_u16(num: u16, mut socket: TcpStream) {
+pub fn write_u16(num: u16, socket: &mut TcpStream) {
     write_x_bytes!(u16, num, socket)
 }
 
-pub fn write_u32(num: u32, mut socket: TcpStream) {
+pub fn write_u32(num: u32, socket: &mut TcpStream) {
     write_x_bytes!(u32, num, socket)
 }
 
-pub fn write_u64(num: u64, mut socket: TcpStream) {
+pub fn write_u64(num: u64, socket: &mut TcpStream) {
     write_x_bytes!(u64, num, socket)
 }
 
