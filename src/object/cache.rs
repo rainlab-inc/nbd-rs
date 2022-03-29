@@ -10,6 +10,7 @@ use std::{
     },
     thread,
 };
+use std::ops::DerefMut;
 use url::{Url};
 
 use log;
@@ -204,8 +205,7 @@ impl CacheBackend {
             .unwrap());
     }
 
-    fn least_important_cache_key(cache_ref: CacheMapRef) -> Option<String> {
-        let cache = cache_ref.read().unwrap();
+    fn least_important_cache_key(cache: &CacheMap) -> Option<String> {
         let kvpair = cache
             .iter()
             .filter(|(k, cref)| {
@@ -233,8 +233,7 @@ impl CacheBackend {
         return None;
     }
 
-    fn get_cache(&self, key: String) -> Option<CacheValRef> {
-        let cache = self.cache.read().unwrap();
+    fn get_key_from_cache(&self, cache: &CacheMap, key: String) -> Option<CacheValRef> {
         let cache_entry = cache.get_key_value(&key);
         if cache_entry.is_none() {
             return None;
@@ -244,22 +243,25 @@ impl CacheBackend {
         Some(cref.clone())
     }
 
-    fn ensure_free_memory(&self, bytes: usize) -> Result<(), Error> {
+    fn get_cache(&self, key: String) -> Option<CacheValRef> {
+        self.get_key_from_cache(self.cache.read().unwrap().deref(), key)
+    }
+
+    fn ensure_free_memory(&self, cache: &mut CacheMap, bytes: usize) -> Result<(), Error> {
         while self.mem_usage.load(Ordering::Acquire) + bytes >= self.mem_limit {
             // .. free least important object
-            let victim_key_res = CacheBackend::least_important_cache_key(self.cache.clone());
+            let victim_key_res = CacheBackend::least_important_cache_key(cache.deref());
             if victim_key_res.is_none() {
                 // TODO: Consider blocking here and persist some write cache, to make space.
                 return Err(Error::new(ErrorKind::Other, "Cannot free memory"));
             }
 
             let victim_key = victim_key_res.unwrap();
-            let cref = self.get_cache(victim_key.clone()).unwrap();
+            let cref = self.get_key_from_cache(cache, victim_key.clone()).unwrap();
             let c = cref.read().unwrap();
 
             self.mem_usage.fetch_sub(c.size, Ordering::Release);
             log::debug!("mem: removing object {}, mem_usage to be: {}", victim_key.clone(), self.mem_usage.load(Ordering::Acquire));
-            let mut cache = self.cache.write().unwrap();
             cache.remove(&victim_key);
         }
 
@@ -345,8 +347,8 @@ impl SimpleObjectStorage for CacheBackend {
             last_persist: None,
         };
 
-        self.ensure_free_memory(cached_object.size);
         let mut cache = self.cache.write().unwrap();
+        self.ensure_free_memory(cache.deref_mut(), cached_object.size);
         self.mem_usage.fetch_add(cached_object.size, Ordering::Release);
         cache.insert(object_name.clone(), CacheValRef::new(cached_object));
         Ok(data)
@@ -380,7 +382,7 @@ impl SimpleObjectStorage for CacheBackend {
         };
         // TODO: Check if mem limit allows this, otherwise
         // * block until it allows, and pressure cache purge
-        self.ensure_free_memory(cached_object.size);
+        self.ensure_free_memory(cache.deref_mut(), cached_object.size);
         self.mem_usage.fetch_add(cached_object.size, Ordering::Release);
         log::trace!("mem_usage: {}", self.mem_usage.load(Ordering::Acquire));
         cache.insert(object_name.clone(), CacheValRef::new(cached_object));
