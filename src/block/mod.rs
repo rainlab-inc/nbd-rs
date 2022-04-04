@@ -9,6 +9,9 @@ mod raw;
 pub use self::raw::RawBlock;
 
 mod sharded;
+
+mod distributed;
+pub use self::distributed::DistributedBlock;
 pub use self::sharded::ShardedBlock;
 
 use crate::util::{Propagation, AlignedBlockIter};
