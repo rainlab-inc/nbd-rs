@@ -21,11 +21,13 @@ pub struct DistributedBlock{
     object_storages: Vec<Box<dyn ObjectStorage>>,
 }
 
-macro_rules! object_storage_from_offset {
-        ($self:ident, $offset:ident) => {
-            $self.object_storages[$self.object_storage_index($offset)]
+
+macro_rules! object_storage_from_current_shard {
+        ($self:ident, $shard:ident) => {
+            $self.object_storages[$shard % $self.object_storages.len()]
         };
     }
+
 
 impl DistributedBlock {
     pub fn new(name: String, config: String) -> DistributedBlock{
@@ -103,11 +105,10 @@ impl BlockStorage for DistributedBlock {
             log::trace!("storage::read(iteration: {})", i);
             let shard_name = self.shard_name(i);
 
-       //     if self.object_storages[self.object_storage_index(offset)].exists(shard_name.clone())? {
-              if object_storage_from_offset!(self, offset).exists(shard_name.clone())? {
+              if object_storage_from_current_shard!(self, i).exists(shard_name.clone())? {
                 if i == start {
                     let read_size = std::cmp::min((self.shard_size - offset % self.shard_size) as usize, length);
-                    let buf = object_storage_from_offset!(self, offset)
+                    let buf = object_storage_from_current_shard!(self, i)
                         .partial_read(shard_name.clone(), offset % self.shard_size, read_size)?;
                     buffer.extend_from_slice(&buf);
                     continue;
@@ -117,12 +118,12 @@ impl BlockStorage for DistributedBlock {
                     if read_size == 0 {
                         read_size = self.shard_size as usize;
                     }
-                    let buf = object_storage_from_offset!(self, offset)
+                    let buf = object_storage_from_current_shard!(self, i)
                         .partial_read(shard_name.clone(), 0, read_size)?;
                     buffer.extend_from_slice(&buf);
                     break;
                 }
-                let buf = object_storage_from_offset!(self, offset)
+                let buf = object_storage_from_current_shard!(self, i)
                     .read(shard_name.clone())?;
                 buffer.extend_from_slice(&buf);
             } else {
@@ -143,12 +144,6 @@ impl BlockStorage for DistributedBlock {
     }
 
     fn write(&mut self, offset: u64, length: usize, data: &[u8]) -> Result<Propagation, Error> {
-        // let start = self.shard_index(offset);
-        // let end = if 0 == (offset + length as u64) % self.shard_size {
-        //     self.shard_index(offset + length as u64) - 1
-        // } else {
-        //     self.shard_index(offset + length as u64)
-        // };
         log::trace!("storage::write(offset: {}, length: {})", offset, length);
         let mut overall_propagation : Propagation = Propagation::Guaranteed;
 
@@ -172,11 +167,11 @@ impl BlockStorage for DistributedBlock {
 
             // full write
             if write_len == self.shard_size as usize {
-                propagated = object_storage_from_offset!(self, offset).write(shard_name.clone(), slice)?;
+                propagated = object_storage_from_current_shard!(self, cur_shard).write(shard_name.clone(), slice)?;
             }
 
             // new object
-            else if !object_storage_from_offset!(self, offset).exists(shard_name.clone())? {
+            else if !object_storage_from_current_shard!(self, cur_shard).exists(shard_name.clone())? {
                 let mut buffer: Vec<u8> = Vec::new();
                 // pad zeroes (head)
                 if shard_offset > 0 {
@@ -189,11 +184,11 @@ impl BlockStorage for DistributedBlock {
                     let tail_zeroes: Vec<u8> = vec![0_u8; (self.shard_size as usize - write_len - shard_offset) as usize];
                     buffer.extend_from_slice(&tail_zeroes);
                 }
-                propagated = object_storage_from_offset!(self, offset).write(shard_name.clone(), &buffer)?;
+                propagated = object_storage_from_current_shard!(self, cur_shard).write(shard_name.clone(), &buffer)?;
 
                 // existing object, partial write
             } else {
-                propagated = object_storage_from_offset!(self, offset).partial_write(shard_name.clone(), shard_offset as u64, write_len, slice)?;
+                propagated = object_storage_from_current_shard!(self, cur_shard).partial_write(shard_name.clone(), shard_offset as u64, write_len, slice)?;
             }
 
             written += write_len;
@@ -223,7 +218,7 @@ impl BlockStorage for DistributedBlock {
         let mut overall_propagation : Propagation = Propagation::Guaranteed;
         for i in start..=end {
             let shard_name = self.shard_name(i);
-            let propagated = object_storage_from_offset!(self, offset).persist_object(shard_name.clone())?;
+            let propagated = object_storage_from_current_shard!(self, i).persist_object(shard_name.clone())?;
             if (propagated as u8) >= (Propagation::Queued as u8) {
                 log::debug!("storage::flush(iteration: {}, {})", i, propagated as u8);
             } else {
@@ -251,9 +246,9 @@ impl BlockStorage for DistributedBlock {
             if i == start {
                 let trim_size = std::cmp::min((self.shard_size - offset % self.shard_size) as usize, length);
                 if trim_size as u64 % self.shard_size == 0 {
-                    overall_propagation = object_storage_from_offset!(self, offset).delete(object_name)?;
+                    overall_propagation = object_storage_from_current_shard!(self, i).delete(object_name)?;
                 } else {
-                    overall_propagation = object_storage_from_offset!(self, offset).partial_write(
+                    overall_propagation = object_storage_from_current_shard!(self, i).partial_write(
                         object_name,
                         offset % self.shard_size,
                         trim_size,
@@ -263,9 +258,9 @@ impl BlockStorage for DistributedBlock {
             } else if i == end {
                 let trim_size = ((length as u64 + offset % self.shard_size) % self.shard_size) as usize;
                 if trim_size as u64 % self.shard_size == 0 {
-                    overall_propagation = object_storage_from_offset!(self, offset).delete(object_name)?;
+                    overall_propagation = object_storage_from_current_shard!(self, i).delete(object_name)?;
                 } else {
-                    overall_propagation = object_storage_from_offset!(self, offset).partial_write(
+                    overall_propagation = object_storage_from_current_shard!(self, i).partial_write(
                         object_name,
                         0,
                         trim_size,
@@ -273,7 +268,7 @@ impl BlockStorage for DistributedBlock {
                     )?;
                 }
             } else {
-                overall_propagation = object_storage_from_offset!(self, offset).delete(object_name)?;
+                overall_propagation = object_storage_from_current_shard!(self, i).delete(object_name)?;
             }
         }
         Ok(overall_propagation)
@@ -281,11 +276,8 @@ impl BlockStorage for DistributedBlock {
 
     fn close(&mut self) {
         log::debug!("storage::close");
-        for mut object_storage in self.object_storages.iter_mut(){
+        for object_storage in self.object_storages.iter_mut(){
             object_storage.close();
         }
-        //for mut object_storage in self.object_storages {
-         //   object_storage.close();
-        //}
     }
 }
