@@ -16,6 +16,8 @@ pub use self::sharded::ShardedBlock;
 
 use crate::util::{Propagation, AlignedBlockIter};
 
+mod shard_distribution;
+
 pub trait BlockStorage {
     fn init(&mut self);
     fn get_name(&self) -> String;
