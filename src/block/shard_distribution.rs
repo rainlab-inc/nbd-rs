@@ -58,4 +58,24 @@ mod tests {
         }
         res
     }
+    
+    #[test]
+    fn nodes_1_replicas_1() {
+        let n_nodes = 1;
+        let n_replicas = 1;
+        let n_shards = N_SHARDS;
+        let setup = DistributionSetup {
+            n_nodes,
+            n_replicas,
+            n_shards,
+        };
+
+        let res = simulate_distribution(setup);
+        assert_eq!(res.nodes.len() as u8, n_nodes);
+
+        for shard_idx in 0..n_shards {
+            let entry = ReplicaIdentity::new(shard_idx, 0);
+            assert!(res.nodes[0].contains(&entry));
+        }
+    }
 }
