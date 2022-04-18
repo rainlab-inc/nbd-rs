@@ -1,33 +1,32 @@
-pub fn node_idx_for_shard(shard_idx: usize, replica_idx: u8, replicas: u8, nodes: u8) -> usize {
-    match nodes {
-        0 => {
-            panic!("Node count must be greater than zero.")
-        }
-        1 => 0,
-        _ => match replicas {
-            0 => {
-                panic!("Replica count must be greater than zero.")
-            }
-            1 => shard_idx % nodes as usize,
+use itertools::Itertools;
 
-            2 => match nodes {
-                2 => replica_idx as usize,
-                4 => {
-                    let rep_0_node_idxs = vec![0, 0, 0, 1, 1, 2];
-                    let rep_1_node_idxs = vec![1, 2, 3, 2, 3, 3];
 
-                    let rep_node_idxs = vec![rep_0_node_idxs, rep_1_node_idxs];
+pub struct ShardDistribution {
+    nodes: u8,
+    replicas: u8,
+    distribution: Vec<Vec<u8>>,
+}
 
-                    let mod_shard_idx = shard_idx % 6;
+impl ShardDistribution {
+    pub fn new(nodes: u8, replicas: u8) -> ShardDistribution {
+ 
+        assert!(replicas <= nodes);
 
-                    rep_node_idxs[replica_idx as usize][mod_shard_idx]
-                }
-                _ => 0,
-            },
-            _ => 0,
-        },
+        let idxs: Vec<u8> = (0..nodes).collect();
+        let distribution = idxs.into_iter().combinations(replicas.into()).collect_vec();
+
+
+        ShardDistribution{nodes, replicas, distribution}
+    }
+
+
+    pub fn node_idx_for_shard(&self, shard_idx: usize, replica_idx: u8) -> u8 {
+
+        let mod_shard_idx = shard_idx % self.distribution.len(); 
+        self.distribution[mod_shard_idx][replica_idx as usize]
     }
 }
+
 
 #[derive(PartialEq)]
 pub struct ReplicaIdentity {
@@ -75,12 +74,14 @@ mod tests {
             res.nodes.push(replicas_in_node);
         }
 
+        let shard_distribution = ShardDistribution::new(setup.n_nodes, setup.n_replicas);
+
         for shard_idx in 0..setup.n_shards {
             for replica_idx in 0..setup.n_replicas {
                 let node_idx =
-                    node_idx_for_shard(shard_idx, replica_idx, setup.n_replicas, setup.n_nodes);
+                    shard_distribution.node_idx_for_shard(shard_idx, replica_idx);
                 let replica_iden = ReplicaIdentity::new(shard_idx, replica_idx);
-                res.nodes[node_idx].push(replica_iden);
+                res.nodes[node_idx as usize].push(replica_iden);
             }
         }
         res
@@ -129,6 +130,9 @@ mod tests {
                 assert!(res.nodes[shard_idx % 2].contains(&entry));
             }
         }
+
+
+
     }
 
     #[test]
