@@ -139,29 +139,78 @@ mod tests {
     fn nodes_4_replicas_2() {
         let n_nodes = 4;
         let n_replicas = 2;
-        let n_shards = N_SHARDS;
+        let n_shards = 12; 
         let setup = DistributionSetup {
             n_nodes,
             n_replicas,
             n_shards,
         };
 
-        let rep_0_node_idxs = vec![0, 0, 0, 1, 1, 2];
-        let rep_1_node_idxs = vec![1, 2, 3, 2, 3, 3];
+        //let rep_0_node_idxs = vec![0, 0, 0, 1, 1, 2];
+        //let rep_1_node_idxs = vec![1, 2, 3, 2, 3, 3];
 
-        let rep_node_idxs = vec![rep_0_node_idxs, rep_1_node_idxs];
+        //let rep_node_idxs = vec![rep_0_node_idxs, rep_1_node_idxs];
 
         let res = simulate_distribution(setup);
         assert_eq!(res.nodes.len() as u8, n_nodes);
 
-        for shard_idx in 0..n_shards {
-            for replica_idx in 0..n_replicas {
-                let entry = ReplicaIdentity::new(shard_idx, replica_idx);
 
-                let mod_shard_idx = shard_idx % 6;
-                //  let node_idx = rep_node_idxs[replica_idx[mod_shard_idx];
-                let node_idx = rep_node_idxs[replica_idx as usize][mod_shard_idx];
-                assert!(res.nodes[node_idx].contains(&entry));
+        let expected_shard_idxs = vec![
+            vec![0,1,2, 6,7,  8],
+            vec![0,3,4, 6,9, 10],
+            vec![1,3,5, 7,9, 11],
+            vec![2,4,5, 8,10,11],
+        ];
+        
+        let expected_replica_idxs = vec![
+            vec![0,0,0, 0,0,0],
+            vec![1,0,0, 1,0,0],
+            vec![1,1,0, 1,1,0],
+            vec![1,1,1, 1,1,1],
+        ];
+        
+
+        for node_idx in 0..(n_nodes as usize) {
+            for i in 0..(n_shards * n_replicas as usize / n_nodes as usize) {
+                assert_eq!(res.nodes[node_idx][i].shard_idx, expected_shard_idxs[node_idx][i]);
+                assert_eq!(res.nodes[node_idx][i].replica_idx, expected_replica_idxs[node_idx][i]);
+            }
+        }
+
+    }
+
+    #[test]
+    fn nodes_4_replicas_3() {
+        let n_nodes = 4;
+        let n_replicas = 3;
+        let n_shards = 8;
+        let setup = DistributionSetup {
+            n_nodes,
+            n_replicas,
+            n_shards,
+        };
+
+        let res = simulate_distribution(setup);
+        assert_eq!(res.nodes.len() as u8, n_nodes);
+
+        let expected_shard_idxs = vec![
+            vec![0,1,2, 4,5,6],
+            vec![0,1,3, 4,5,7],
+            vec![0,2,3, 4,6,7],
+            vec![1,2,3, 5,6,7],
+        ];
+        
+        let expected_replica_idxs = vec![
+            vec![0,0,0, 0,0,0],
+            vec![1,1,0, 1,1,0],
+            vec![2,1,1, 2,1,1],
+            vec![2,2,2, 2,2,2],
+        ];
+
+        for node_idx in 0..(n_nodes as usize) {
+            for i in 0..(n_shards * n_replicas as usize / n_nodes as usize) {
+                assert_eq!(res.nodes[node_idx][i].shard_idx, expected_shard_idxs[node_idx][i]);
+                assert_eq!(res.nodes[node_idx][i].replica_idx, expected_replica_idxs[node_idx][i]);
             }
         }
     }
