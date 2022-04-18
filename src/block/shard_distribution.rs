@@ -1,5 +1,32 @@
 pub fn node_idx_for_shard(shard_idx: usize, replica_idx: u8, replicas: u8, nodes: u8) -> usize {
-    todo!();
+    match nodes {
+        0 => {
+            panic!("Node count must be greater than zero.")
+        }
+        1 => 0,
+        _ => match replicas {
+            0 => {
+                panic!("Replica count must be greater than zero.")
+            }
+            1 => shard_idx % nodes as usize,
+
+            2 => match nodes {
+                2 => replica_idx as usize,
+                4 => {
+                    let rep_0_node_idxs = vec![0, 0, 0, 1, 1, 2];
+                    let rep_1_node_idxs = vec![1, 2, 3, 2, 3, 3];
+
+                    let rep_node_idxs = vec![rep_0_node_idxs, rep_1_node_idxs];
+
+                    let mod_shard_idx = shard_idx % 6;
+
+                    rep_node_idxs[replica_idx as usize][mod_shard_idx]
+                }
+                _ => 0,
+            },
+            _ => 0,
+        },
+    }
 }
 
 #[derive(PartialEq)]
@@ -100,6 +127,37 @@ mod tests {
                 let entry = ReplicaIdentity::new(shard_idx, replica_idx);
 
                 assert!(res.nodes[shard_idx % 2].contains(&entry));
+            }
+        }
+    }
+
+    #[test]
+    fn nodes_4_replicas_2() {
+        let n_nodes = 4;
+        let n_replicas = 2;
+        let n_shards = N_SHARDS;
+        let setup = DistributionSetup {
+            n_nodes,
+            n_replicas,
+            n_shards,
+        };
+
+        let rep_0_node_idxs = vec![0, 0, 0, 1, 1, 2];
+        let rep_1_node_idxs = vec![1, 2, 3, 2, 3, 3];
+
+        let rep_node_idxs = vec![rep_0_node_idxs, rep_1_node_idxs];
+
+        let res = simulate_distribution(setup);
+        assert_eq!(res.nodes.len() as u8, n_nodes);
+
+        for shard_idx in 0..n_shards {
+            for replica_idx in 0..n_replicas {
+                let entry = ReplicaIdentity::new(shard_idx, replica_idx);
+
+                let mod_shard_idx = shard_idx % 6;
+                //  let node_idx = rep_node_idxs[replica_idx[mod_shard_idx];
+                let node_idx = rep_node_idxs[replica_idx as usize][mod_shard_idx];
+                assert!(res.nodes[node_idx].contains(&entry));
             }
         }
     }
