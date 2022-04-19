@@ -22,6 +22,17 @@ pub struct DistributedBlock{
     shard_distribution: ShardDistribution,
 }
 
+fn get_cfg_entry(split: &Vec<&str>, entry: &str) -> Option<String> {
+    let entry_str = format!("{}{}",entry, "=");
+    for cfg in split {
+        let tmp = cfg.strip_prefix(&entry_str);
+        if tmp.is_some() {
+            return Some(String::from(tmp.unwrap()));
+        }
+    }
+    None
+}
+
 
 impl DistributedBlock {
     pub fn new(name: String, config: String) -> DistributedBlock{
@@ -29,8 +40,13 @@ impl DistributedBlock {
         //       or a setting like `create=true`
         // TODO: Allow configuring shard size in config string
         let default_shard_size: u64 = 4 * 1024 * 1024;
-        let object_storages = object_storages_with_config(config.clone()).unwrap();
-        let shard_distribution = ShardDistribution::new(object_storages.len() as u8, 2);
+
+        let split = config.split(";").collect();
+        let replicas:u8 = get_cfg_entry(&split, "replicas").unwrap().parse().unwrap();
+        let backends = get_cfg_entry(&split, "backends").unwrap();
+
+        let object_storages = object_storages_with_config(backends).unwrap();
+        let shard_distribution = ShardDistribution::new(object_storages.len() as u8, replicas);
         let mut distributed_block = DistributedBlock {
             name: name.clone(),
             volume_size: 0_u64,
@@ -73,6 +89,8 @@ impl DistributedBlock {
     pub fn shard_name(&self, shard_idx: usize, replica_idx: u8) -> String {
         format!("block-{}-{}", shard_idx, replica_idx).to_string()
     }
+
+
 }
 
 impl BlockStorage for DistributedBlock {
