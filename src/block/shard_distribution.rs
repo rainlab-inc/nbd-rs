@@ -2,8 +2,8 @@ use itertools::Itertools;
 
 
 pub struct ShardDistribution {
-    nodes: u8,
-    replicas: u8,
+    pub nodes: u8,
+    pub replicas: u8,
     distribution: Vec<Vec<u8>>,
 }
 

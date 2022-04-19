@@ -30,7 +30,7 @@ impl DistributedBlock {
         // TODO: Allow configuring shard size in config string
         let default_shard_size: u64 = 4 * 1024 * 1024;
         let object_storages = object_storages_with_config(config.clone()).unwrap();
-        let shard_distribution = ShardDistribution::new(object_storages.len() as u8, 1);
+        let shard_distribution = ShardDistribution::new(object_storages.len() as u8, 2);
         let mut distributed_block = DistributedBlock {
             name: name.clone(),
             volume_size: 0_u64,
@@ -70,8 +70,8 @@ impl DistributedBlock {
         volume_size
     }
 
-    pub fn shard_name(&self, index: usize) -> String {
-        format!("block-{}", index).to_string()
+    pub fn shard_name(&self, shard_idx: usize, replica_idx: u8) -> String {
+        format!("block-{}-{}", shard_idx, replica_idx).to_string()
     }
 }
 
@@ -104,7 +104,7 @@ impl BlockStorage for DistributedBlock {
         log::trace!("storage::read(start: {}, end: {})", start, end);
         for i in start..=end {
             log::trace!("storage::read(iteration: {})", i);
-            let shard_name = self.shard_name(i);
+            let shard_name = self.shard_name(i, 0);
 
               if self.get_object_storage(i,0).exists(shard_name.clone())? {
                 if i == start {
@@ -145,92 +145,115 @@ impl BlockStorage for DistributedBlock {
     }
 
     fn write(&mut self, offset: u64, length: usize, data: &[u8]) -> Result<Propagation, Error> {
-        log::trace!("storage::write(offset: {}, length: {})", offset, length);
-        let mut overall_propagation : Propagation = Propagation::Guaranteed;
+        // FIXME! 
+        // This is so wrong.
+        // We are trying to write same data more than once but write function returns propagation which depends only
+        // 1 node so for temporary, propagation of the first node is returned.
+        let mut overall_first_propagation = Propagation::Noop;
+        for replica_idx in 0..self.shard_distribution.replicas {
+            log::trace!("storage::write(offset: {}, length: {})", offset, length);
+            let mut overall_propagation : Propagation = Propagation::Guaranteed;
 
-        let mut cur_offset: usize = offset as usize;
-        let mut cur_shard;
-        let mut written: usize = 0;
-        while written < length {
-            cur_shard = self.shard_index(cur_offset as u64);
-            let shard_offset: usize = cur_offset % self.shard_size as usize;
+            let mut cur_offset: usize = offset as usize;
+            let mut cur_shard;
+            let mut written: usize = 0;
+            while written < length {
+                cur_shard = self.shard_index(cur_offset as u64);
+                let shard_offset: usize = cur_offset % self.shard_size as usize;
 
-            // until which byte we will write inside this shard
-            let write_target = std::cmp::min(shard_offset + (length - written), self.shard_size as usize);
-            log::trace!("write_target {} - shard_offset {}", write_target, shard_offset);
-            let write_len: usize = write_target - shard_offset;
+                // until which byte we will write inside this shard
+                let write_target = std::cmp::min(shard_offset + (length - written), self.shard_size as usize);
+                log::trace!("write_target {} - shard_offset {}", write_target, shard_offset);
+                let write_len: usize = write_target - shard_offset;
 
-            log::trace!("storage::write(shard: {}, offset: {}, len: {})", cur_shard, shard_offset, write_len);
-            let shard_name = self.shard_name(cur_shard);
+                log::trace!("storage::write(shard: {}, offset: {}, len: {})", cur_shard, shard_offset, write_len);
+                let shard_name = self.shard_name(cur_shard, replica_idx);
 
-            let slice = &data[written..(written + write_len)];
-            let propagated;
+                let slice = &data[written..(written + write_len)];
+                let propagated;
 
-            // full write
-            if write_len == self.shard_size as usize {
-                propagated = self.get_object_storage(cur_shard, 0).write(shard_name.clone(), slice)?;
-            }
-
-            // new object
-            else if !self.get_object_storage(cur_shard, 0).exists(shard_name.clone())? {
-                let mut buffer: Vec<u8> = Vec::new();
-                // pad zeroes (head)
-                if shard_offset > 0 {
-                    let head_zeroes: Vec<u8> = vec![0_u8; shard_offset as usize];
-                    buffer.extend_from_slice(&head_zeroes);
+                // full write
+                if write_len == self.shard_size as usize {
+                    propagated = self.get_object_storage(cur_shard, replica_idx).write(shard_name.clone(), slice)?;
                 }
-                buffer.extend_from_slice(slice);
-                // pad zeroes (tail)
-                if write_target < self.shard_size as usize - 1 {
-                    let tail_zeroes: Vec<u8> = vec![0_u8; (self.shard_size as usize - write_len - shard_offset) as usize];
-                    buffer.extend_from_slice(&tail_zeroes);
+
+                // new object
+                else if !self.get_object_storage(cur_shard, replica_idx).exists(shard_name.clone())? {
+                    let mut buffer: Vec<u8> = Vec::new();
+                    // pad zeroes (head)
+                    if shard_offset > 0 {
+                        let head_zeroes: Vec<u8> = vec![0_u8; shard_offset as usize];
+                        buffer.extend_from_slice(&head_zeroes);
+                    }
+                    buffer.extend_from_slice(slice);
+                    // pad zeroes (tail)
+                    if write_target < self.shard_size as usize - 1 {
+                        let tail_zeroes: Vec<u8> = vec![0_u8; (self.shard_size as usize - write_len - shard_offset) as usize];
+                        buffer.extend_from_slice(&tail_zeroes);
+                    }
+                    propagated = self.get_object_storage(cur_shard, replica_idx).write(shard_name.clone(), &buffer)?;
+
+                    // existing object, partial write
+                } else {
+                    propagated = self.get_object_storage(cur_shard, replica_idx).partial_write(shard_name.clone(), shard_offset as u64, write_len, slice)?;
                 }
-                propagated = self.get_object_storage(cur_shard, 0).write(shard_name.clone(), &buffer)?;
 
-                // existing object, partial write
-            } else {
-                propagated = self.get_object_storage(cur_shard, 0).partial_write(shard_name.clone(), shard_offset as u64, write_len, slice)?;
+                written += write_len;
+                cur_offset += write_len;
+                if (propagated as u8) >= (Propagation::Queued as u8) {
+                    log::debug!("storage::write(iteration: {}, {})", cur_shard, propagated as u8);
+                } else {
+                    log::trace!("storage::write(iteration: {}, {})", cur_shard, propagated as u8);
+                }
+                if (propagated as u8) < (overall_propagation as u8) {
+                    overall_propagation = propagated;
+                }
             }
 
-            written += write_len;
-            cur_offset += write_len;
-            if (propagated as u8) >= (Propagation::Queued as u8) {
-                log::debug!("storage::write(iteration: {}, {})", cur_shard, propagated as u8);
-            } else {
-                log::trace!("storage::write(iteration: {}, {})", cur_shard, propagated as u8);
+
+            if replica_idx == 0 {
+                overall_first_propagation = overall_propagation;
             }
-            if (propagated as u8) < (overall_propagation as u8) {
-                overall_propagation = propagated;
-            }
+
         }
 
-        Ok(overall_propagation)
+        Ok(overall_first_propagation)
     }
 
     fn flush(&mut self, offset: u64, length: usize) -> Result<Propagation, Error> {
-        let start = self.shard_index(offset);
-        let end = if 0 == (offset + length as u64) % self.shard_size {
-            self.shard_index(offset + length as u64) - 1
-        } else {
-            self.shard_index(offset + length as u64)
-        };
-
-        log::debug!("storage::flush(start: {}, end: {})", start, end);
-        let mut overall_propagation : Propagation = Propagation::Guaranteed;
-        for i in start..=end {
-            let shard_name = self.shard_name(i);
-            let propagated = self.get_object_storage(i, 0).persist_object(shard_name.clone())?;
-            if (propagated as u8) >= (Propagation::Queued as u8) {
-                log::debug!("storage::flush(iteration: {}, {})", i, propagated as u8);
+        // FIXME! 
+        // This is so wrong.
+        // We are trying to flush same data more than once but flush function returns propagation which depends only
+        // 1 node so for temporary, propagation of the first node is returned.
+        let mut overall_first_propagation = Propagation::Noop;
+        for replica_idx in 0..self.shard_distribution.replicas {
+            let start = self.shard_index(offset);
+            let end = if 0 == (offset + length as u64) % self.shard_size {
+                self.shard_index(offset + length as u64) - 1
             } else {
-                log::trace!("storage::flush(iteration: {}, {})", i, propagated as u8);
+                self.shard_index(offset + length as u64)
+            };
+
+            log::debug!("storage::flush(start: {}, end: {})", start, end);
+            let mut overall_propagation : Propagation = Propagation::Guaranteed;
+            for i in start..=end {
+                let shard_name = self.shard_name(i, replica_idx);
+                let propagated = self.get_object_storage(i, replica_idx).persist_object(shard_name.clone())?;
+                if (propagated as u8) >= (Propagation::Queued as u8) {
+                    log::debug!("storage::flush(iteration: {}, {})", i, propagated as u8);
+                } else {
+                    log::trace!("storage::flush(iteration: {}, {})", i, propagated as u8);
+                }
+                if (propagated as u8) < (overall_propagation as u8) {
+                    overall_propagation = propagated;
+                }
             }
-            if (propagated as u8) < (overall_propagation as u8) {
-                overall_propagation = propagated;
+            if replica_idx == 0 {
+                overall_first_propagation = overall_propagation;
             }
         }
 
-        Ok(overall_propagation)
+        Ok(overall_first_propagation)
     }
 
     fn trim(&mut self, offset: u64, length: usize) -> Result<Propagation, Error> {
@@ -243,7 +266,7 @@ impl BlockStorage for DistributedBlock {
         log::debug!("storage::trim(start: {}, end: {})", start, end);
         let mut overall_propagation : Propagation = Propagation::Guaranteed;
         for i in start..=end {
-            let object_name = self.shard_name(i);
+            let object_name = self.shard_name(i, 0);
             if i == start {
                 let trim_size = std::cmp::min((self.shard_size - offset % self.shard_size) as usize, length);
                 if trim_size as u64 % self.shard_size == 0 {
