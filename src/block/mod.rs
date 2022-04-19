@@ -17,6 +17,7 @@ pub use self::sharded::ShardedBlock;
 use crate::util::{Propagation, AlignedBlockIter};
 
 mod shard_distribution;
+pub use self::shard_distribution::ShardDistribution;
 
 pub trait BlockStorage {
     fn init(&mut self);
