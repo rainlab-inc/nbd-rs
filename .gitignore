@@ -1,3 +1,4 @@
 /target
 /minio-data
 **/*.rs.bk
+/.vagrant
