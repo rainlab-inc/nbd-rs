@@ -90,7 +90,15 @@ impl DistributedBlock {
         format!("block-{}-{}", shard_idx, replica_idx).to_string()
     }
 
-
+    pub fn get_replica_idx_from_shard(&self, shard_idx: usize) ->Result<Option<u8>, Error> {
+        for replica_idx in 0..self.shard_distribution.replicas {
+            let shard_name = self.shard_name(shard_idx, replica_idx);
+            if self.get_object_storage(shard_idx, replica_idx).exists(shard_name.clone())? {
+                return Ok(Some(replica_idx))
+            }
+        }
+        Ok(None)
+    }
 }
 
 impl BlockStorage for DistributedBlock {
@@ -121,13 +129,17 @@ impl BlockStorage for DistributedBlock {
 
         log::trace!("storage::read(start: {}, end: {})", start, end);
         for i in start..=end {
-            log::trace!("storage::read(iteration: {})", i);
-            let shard_name = self.shard_name(i, 0);
 
-              if self.get_object_storage(i,0).exists(shard_name.clone())? {
+            let replica_idx = self.get_replica_idx_from_shard(i)?;
+            
+            if replica_idx.is_some(){
+                let replica_idx = replica_idx.unwrap();
+                let shard_name = self.shard_name(i, replica_idx);
+                log::trace!("storage::read(iteration: {} replica: {})", i, replica_idx);
+
                 if i == start {
                     let read_size = std::cmp::min((self.shard_size - offset % self.shard_size) as usize, length);
-                    let buf = self.get_object_storage(i, 0)
+                    let buf = self.get_object_storage(i, replica_idx)
                         .partial_read(shard_name.clone(), offset % self.shard_size, read_size)?;
                     buffer.extend_from_slice(&buf);
                     continue;
@@ -137,7 +149,7 @@ impl BlockStorage for DistributedBlock {
                     if read_size == 0 {
                         read_size = self.shard_size as usize;
                     }
-                    let buf = self.get_object_storage(i, 0)
+                    let buf = self.get_object_storage(i, replica_idx)
                         .partial_read(shard_name.clone(), 0, read_size)?;
                     buffer.extend_from_slice(&buf);
                     break;
@@ -158,6 +170,7 @@ impl BlockStorage for DistributedBlock {
                 }
                 buffer.extend_from_slice(&vec![0_u8; self.shard_size as usize]);
             }
+
         }
         Ok(buffer)
     }
