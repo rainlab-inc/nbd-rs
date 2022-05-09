@@ -5,7 +5,7 @@ use crate::block::RawBlock;
 use crate::block::ShardedBlock;
 use crate::block::DistributedBlock;
 
-pub fn block_storage_with_config(export_name: String, driver: String, config: String) -> Result<Box<dyn BlockStorage>, Error> {
+pub fn block_storage_with_config(export_name: String, export_size: usize, driver: String, config: String) -> Result<Box<dyn BlockStorage>, Error> {
     log::info!("block storage: {:?}", driver.clone());
 
     match driver.as_str() {
@@ -16,7 +16,7 @@ pub fn block_storage_with_config(export_name: String, driver: String, config: St
             Ok(Box::new(ShardedBlock::new(export_name.to_lowercase().clone(), config)))
         },
         "distributed" => {
-            Ok(Box::new(DistributedBlock::new(export_name.to_lowercase().clone(), config)))
+            Ok(Box::new(DistributedBlock::new(export_name.to_lowercase().clone(), export_size, config)))
         }
         _ => {
             log::error!("No such storage driver: {}", driver);

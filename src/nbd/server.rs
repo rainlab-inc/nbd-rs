@@ -28,6 +28,7 @@ pub struct NBDServer {
 
 pub struct NBDExport {
     pub name: String,
+    size: usize,
     driver_type: String,
     config: String,
     pub driver: Arc<RwLock<Box<dyn BlockStorage>>>,
@@ -35,19 +36,21 @@ pub struct NBDExport {
 }
 
 impl NBDExport {
-    pub fn new(name: String, driver_type: String, conn_str: String) -> NBDExport {
+    pub fn new(name: String, size: usize, driver_type: String, conn_str: String) -> NBDExport {
         // TODO: unhardcode below from here (it is okay to hardcode in block/mod.rs though)
         if !["raw", "sharded", "distributed"].contains(&driver_type.as_str()) {
             panic!("Driver must be one of the values `raw` or `sharded`. Found '{}'", driver_type);
         }
         let driver = block_storage_with_config(
             name.clone(),
+            size,
             driver_type.clone(),
             conn_str.clone()
         ).unwrap();
         log::info!("export {:?} -> {}({:?})", &name, &driver_type, &conn_str);
         NBDExport {
             name: name,
+            size,
             driver_type: driver_type,
             config: conn_str,
             driver: Arc::new(RwLock::new(driver)),

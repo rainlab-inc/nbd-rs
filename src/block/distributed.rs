@@ -33,7 +33,7 @@ fn get_cfg_entry(split: &Vec<&str>, entry: &str) -> Option<String> {
 }
 
 impl DistributedBlock {
-    pub fn new(name: String, config: String) -> DistributedBlock{
+    pub fn new(name: String, export_size: usize, config: String) -> DistributedBlock{
         // TODO: Allow configuring disk size in config string
         //       or a setting like `create=true`
         // TODO: Allow configuring shard size in config string
@@ -45,15 +45,23 @@ impl DistributedBlock {
 
         let object_storages = object_storages_with_config(backends).unwrap();
         let shard_distribution = ShardDistribution::new(object_storages.len() as u8, replicas);
+
+
+        let volume_size = (export_size as u64) * (replicas as u64) / (shard_distribution.nodes as u64); 
         let mut distributed_block = DistributedBlock {
             name: name.clone(),
-            volume_size: 0_u64,
+            volume_size,
             shard_size: default_shard_size,
             //object_storage: object_storage_with_config(config.clone()).unwrap(),
             object_storages: object_storages,
             shard_distribution: shard_distribution,
         };
         distributed_block.init();
+
+        for storage in &distributed_block.object_storages {
+            let bytes = volume_size.to_be_bytes(); 
+            storage.write(String::from("size"), &bytes);
+        }
         distributed_block
     }
 
