@@ -24,7 +24,14 @@ fn main() {
             .arg(arg!([DRIVER] "Driver of the export").required(true))
             .arg(arg!([DRIVER_CFG] "Driver config of the export").required(true))
             )
-            .get_matches();
+        .subcommand(
+            Command::new("serve")
+            .about("Serves the export.")
+            .arg(arg!([EXPORT] "Name of the export").required(true))
+            .arg(arg!([DRIVER] "Driver of the export").required(true))
+            .arg(arg!([DRIVER_CFG] "Driver config of the export").required(true)),
+            )
+        .get_matches();
 
 
 
@@ -34,7 +41,12 @@ fn main() {
             sub_matches.value_of("DRIVER").unwrap(),
             sub_matches.value_of("DRIVER_CFG").unwrap(),
             ),
-        _=> Ok(()),
+            Some(("serve", sub_matches)) => export_serve(
+                sub_matches.value_of("EXPORT").unwrap(),
+                sub_matches.value_of("DRIVER").unwrap(),
+                sub_matches.value_of("DRIVER_CFG").unwrap(),
+            ),
+            _=> Ok(()),
     }.unwrap();
 }
 

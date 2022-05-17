@@ -4,6 +4,7 @@ use std::{
 
 mod config;
 pub use self::config::block_storage_with_config;
+pub use self::config::BlockStorageConfig;
 
 mod raw;
 pub use self::raw::RawBlock;

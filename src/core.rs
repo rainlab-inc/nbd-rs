@@ -2,7 +2,8 @@ use std::error::Error;
 use regex::Regex;
 
 use crate::nbd::{NBDExport, NBDServer};
-
+use crate::block::{BlockStorageConfig, block_storage_with_config};
+use std::sync::{Arc, RwLock};
 
 
 fn human_size_to_usize(size_str: &str) -> Result<usize, Box<dyn Error>> {
@@ -32,10 +33,32 @@ fn human_size_to_usize(size_str: &str) -> Result<usize, Box<dyn Error>> {
 
 
 pub fn export_init(size_str: &str, driver_str: &str, driver_cfg_str: &str) -> Result<(), Box<dyn Error>> {
- 
+
     let size = human_size_to_usize(size_str)?;
-    let export = NBDExport::new(String::from("noname"), size, String::from(driver_str), String::from(driver_cfg_str));
 
+    let config = BlockStorageConfig {
+        export_name: None,
+        export_size: Some(size),
+        driver: driver_str.to_string(),
+        conn_str: driver_cfg_str.to_string(),
+    };
 
+    let _block_storage = block_storage_with_config(config)?;
+    Ok(())
+}
+
+pub fn export_serve(export_name: &str, driver_str: &str, driver_cfg_str: &str) -> Result<(), Box<dyn Error>> {
+    let mut exports = Vec::<Arc<RwLock<NBDExport>>>::new();
+
+    let export = Arc::new(RwLock::new(NBDExport::new(
+                export_name.to_string(),
+                String::from(driver_str),
+                String::from(driver_cfg_str),
+                )));
+
+    exports.push(export);
+
+    let mut server = NBDServer::new("0.0.0.0".to_string(), 10809, exports);
+    server.listen();
     Ok(())
 }

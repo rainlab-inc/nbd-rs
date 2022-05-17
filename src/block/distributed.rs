@@ -7,14 +7,14 @@ use log;
 
 use crate::{
     object::{ObjectStorage, object_storage_with_config, object_storages_with_config},
-    block::{BlockStorage, ShardDistribution},
+    block::{BlockStorage, BlockStorageConfig, ShardDistribution},
 };
 use crate::util::Propagation;
 
 // Driver: DistributedBlock
 
 pub struct DistributedBlock{
-    name: String,
+    name: Option<String>,
     volume_size: u64,
     shard_size: u64,
     object_storages: Vec<Box<dyn ObjectStorage>>,
@@ -33,35 +33,67 @@ fn get_cfg_entry(split: &Vec<&str>, entry: &str) -> Option<String> {
 }
 
 impl DistributedBlock {
-    pub fn new(name: String, export_size: usize, config: String) -> DistributedBlock{
-        // TODO: Allow configuring disk size in config string
+    pub fn new(config: BlockStorageConfig) -> DistributedBlock {
+             // TODO: Allow configuring disk size in config string
         //       or a setting like `create=true`
         // TODO: Allow configuring shard size in config string
         let default_shard_size: u64 = 4 * 1024 * 1024;
 
-        let split = config.split(";").collect();
-        let replicas:u8 = get_cfg_entry(&split, "replicas").unwrap().parse().unwrap();
+        let conn_str = config.conn_str.clone();
+        let split = conn_str.split(";").collect();
+        let replicas: u8 = get_cfg_entry(&split, "replicas").unwrap().parse().unwrap();
         let backends = get_cfg_entry(&split, "backends").unwrap();
 
         let object_storages = object_storages_with_config(backends).unwrap();
         let shard_distribution = ShardDistribution::new(object_storages.len() as u8, replicas);
 
-
-        let volume_size = (export_size as u64) * (replicas as u64) / (shard_distribution.nodes as u64); 
         let mut distributed_block = DistributedBlock {
-            name: name.clone(),
-            volume_size,
+            name: config.export_name.clone(),
+            volume_size: 0,
             shard_size: default_shard_size,
-            //object_storage: object_storage_with_config(config.clone()).unwrap(),
-            object_storages: object_storages,
-            shard_distribution: shard_distribution,
+            object_storages,
+            shard_distribution,
         };
-        distributed_block.init();
 
-        for storage in &distributed_block.object_storages {
-            let bytes = volume_size.to_be_bytes(); 
-            storage.write(String::from("size"), &bytes);
+        if config.export_name.is_none() && config.export_size.is_some() {
+            // Initialize volume
+            let volume_size = config.export_size.unwrap() as u64;
+            log::info!("Volume size : {}", volume_size);
+            distributed_block.volume_size = volume_size;
+            distributed_block.init();
+
+            /* Check initialized */
+            for (i, storage) in distributed_block.object_storages.iter().enumerate() {
+                let size_str = volume_size.to_string();
+                storage.write(String::from("size"), &size_str.as_bytes());
+                log::info!("Volume size written to: node-{}", i);
+            }
+        } else if config.export_name.is_some() && config.export_size.is_none() {
+            let mut volume_size: u64 = 0;
+            let mut first_node = true;
+
+            for (i, storage) in distributed_block.object_storages.iter().enumerate() {
+                let size = String::from_utf8(storage.read("size".to_string()).unwrap()).unwrap();
+                let tmp_volume_size = size.parse().unwrap();
+                log::info!("Volume size in the node-{} is {}", i, tmp_volume_size);
+
+                if first_node {
+                    volume_size = tmp_volume_size;
+                    first_node = false;
+                    continue;
+                }
+
+                if tmp_volume_size != volume_size {
+                    panic!("Volume sizes should be same for each node.");
+                }
+            }
+
+            log::info!("Volume sizes are same for all nodes: {}", volume_size);
+            distributed_block.volume_size = volume_size;
+        } else {
+            panic!("Unreachable");
         }
+
         distributed_block
     }
 
@@ -111,7 +143,7 @@ impl BlockStorage for DistributedBlock {
     }
 
     fn get_name(&self) -> String {
-        self.name.clone()
+        self.name.clone().unwrap()
     }
 
     fn get_volume_size(&self) -> u64 {
