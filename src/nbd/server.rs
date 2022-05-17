@@ -45,6 +45,7 @@ impl NBDExport {
         let config = BlockStorageConfig {
             export_name: Some(name.clone()),
             export_size: None,
+            export_force: false,
             driver: driver_type.clone(),
             conn_str: conn_str.clone(),
         };

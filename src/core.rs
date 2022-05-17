@@ -32,13 +32,14 @@ fn human_size_to_usize(size_str: &str) -> Result<usize, Box<dyn Error>> {
 
 
 
-pub fn export_init(size_str: &str, driver_str: &str, driver_cfg_str: &str) -> Result<(), Box<dyn Error>> {
+pub fn export_init(size_str: &str, driver_str: &str, driver_cfg_str: &str, force: bool) -> Result<(), Box<dyn Error>> {
 
     let size = human_size_to_usize(size_str)?;
 
     let config = BlockStorageConfig {
         export_name: None,
         export_size: Some(size),
+        export_force: force,
         driver: driver_str.to_string(),
         conn_str: driver_cfg_str.to_string(),
     };

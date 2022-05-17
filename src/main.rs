@@ -23,6 +23,7 @@ fn main() {
             .arg(arg!(-s --size <SIZE> "Requested size of the export").required(true))
             .arg(arg!([DRIVER] "Driver of the export").required(true))
             .arg(arg!([DRIVER_CFG] "Driver config of the export").required(true))
+            .arg(arg!(-f --force "Force requested size of the export").required(false))
             )
         .subcommand(
             Command::new("serve")
@@ -40,6 +41,7 @@ fn main() {
             sub_matches.value_of("size").unwrap(),
             sub_matches.value_of("DRIVER").unwrap(),
             sub_matches.value_of("DRIVER_CFG").unwrap(),
+            sub_matches.is_present("force")
             ),
             Some(("serve", sub_matches)) => export_serve(
                 sub_matches.value_of("EXPORT").unwrap(),

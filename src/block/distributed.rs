@@ -58,11 +58,32 @@ impl DistributedBlock {
         if config.export_name.is_none() && config.export_size.is_some() {
             // Initialize volume
             let volume_size = config.export_size.unwrap() as u64;
-            log::info!("Volume size : {}", volume_size);
+            log::info!("Volume size: {}", volume_size);
             distributed_block.volume_size = volume_size;
             distributed_block.init();
 
             /* Check initialized */
+            for (i, storage) in distributed_block.object_storages.iter().enumerate() {
+                let size = storage.read("size".to_string());
+                if size.is_err() {
+                    continue;
+                } else {
+                    let size = String::from_utf8(storage.read("size".to_string()).unwrap()).unwrap();
+                    let size: u64 = size.parse().unwrap();
+                    if size == volume_size {
+                        log::warn!("Node {} is already initialized with the same size: {}", i, size);
+                    } else {
+                        if !config.export_force {
+                            log::error!("Node {} is already initialized and the size is configured to be {}, add --force to override current configuration", i, size);
+                            panic!();
+                        } else {
+                            log::warn!("Node {} is already initialized with size: {}", i, size);
+                        }
+                    }
+                }
+            }
+
+
             for (i, storage) in distributed_block.object_storages.iter().enumerate() {
                 let size_str = volume_size.to_string();
                 storage.write(String::from("size"), &size_str.as_bytes());
@@ -135,6 +156,7 @@ impl DistributedBlock {
         }
         Ok(None)
     }
+
 }
 
 impl BlockStorage for DistributedBlock {

@@ -8,6 +8,7 @@ use crate::block::DistributedBlock;
 pub struct BlockStorageConfig {
     pub export_name: Option<String>,
     pub export_size: Option<usize>,
+    pub export_force: bool,
     pub driver: String,
     pub conn_str: String,
 }
