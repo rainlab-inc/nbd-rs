@@ -1,7 +1,7 @@
 #![allow(unused_variables, unused_imports)]
 
 use std::{
-    io::{Read, Write},
+    io::{Read, Write, BufWriter},
     net::{TcpStream},
     time::{SystemTime, UNIX_EPOCH},
     sync::{Arc, RwLock},
@@ -202,10 +202,12 @@ impl NBDSession {
                                 );
                                 {
                                     let socket = Rc::clone(&self.socket);
-                                    let mut m_socket = socket.borrow_mut();
-                                    util::write_u32(proto::NBD_REP_ERR_UNKNOWN, &mut m_socket);
-                                    util::write_u16(err_msg.len() as u16, &mut m_socket);
-                                    write!(err_msg, &mut m_socket);
+                                    let m_socket = &*socket.borrow();
+                                    let mut buf = BufWriter::new(m_socket);
+                                    buf.write(&proto::NBD_REP_ERR_UNKNOWN.to_be_bytes()).unwrap();
+                                    buf.write(&(err_msg.len() as u16).to_be_bytes()).unwrap();
+                                    buf.write(err_msg).unwrap();
+                                    buf.flush().unwrap();
                                 }
                             } else {
                                 self.simple_reply(
@@ -243,10 +245,12 @@ impl NBDSession {
                             );
                             {
                                 let socket = Rc::clone(&self.socket);
-                                let mut m_socket = socket.borrow_mut();
-                                util::write_u32(proto::NBD_REP_ERR_UNKNOWN, &mut m_socket);
-                                util::write_u16(err_msg.len() as u16, &mut m_socket);
-                                write!(err_msg, &mut m_socket);
+                                let m_socket = &*socket.borrow();
+                                let mut buf = BufWriter::new(m_socket);
+                                buf.write(&proto::NBD_REP_ERR_UNKNOWN.to_be_bytes()).unwrap();
+                                buf.write(&(err_msg.len() as u16).to_be_bytes()).unwrap();
+                                buf.write(err_msg).unwrap();
+                                buf.flush().unwrap();
                             }
                         } else {
                             self.simple_reply(
@@ -332,10 +336,12 @@ impl NBDSession {
                 );
                 {
                     let socket = Rc::clone(&self.socket);
-                    let mut m_socket = socket.borrow_mut();
-                    util::write_u32(self.metadata_context_id.get(), &mut m_socket);
-                    util::write_u32(datalen, &mut m_socket);
-                    util::write_u32(0, &mut m_socket);
+                    let m_socket = &*socket.borrow();
+                    let mut buf = BufWriter::new(m_socket);
+                    buf.write(&self.metadata_context_id.get().to_be_bytes()).unwrap();
+                    buf.write(&datalen.to_be_bytes()).unwrap();
+                    buf.write(&0_u32.to_be_bytes()).unwrap();
+                    buf.flush().unwrap();
                 }
             }
             _ => {
@@ -347,20 +353,24 @@ impl NBDSession {
 
     fn simple_reply(&self, err_code: u32, handle: u64) {
         let socket = Rc::clone(&self.socket);
-        let mut m_socket = socket.borrow_mut();
-        util::write_u32(0x67446698_u32, &mut m_socket); // SIMPLE REPLY MAGIC
-        util::write_u32(err_code, &mut m_socket);
-        util::write_u64(handle, &mut m_socket);
+        let m_socket = &*socket.borrow();
+        let mut buf = BufWriter::new(m_socket);
+        buf.write(&0x67446698_u32.to_be_bytes()).unwrap();
+        buf.write(&err_code.to_be_bytes()).unwrap();
+        buf.write(&handle.to_be_bytes()).unwrap();
+        buf.flush().unwrap();
     }
 
     fn structured_reply(&self, flags: u16, reply_type: u16, handle: u64, length_of_payload: u32) {
         let socket = Rc::clone(&self.socket);
-        let mut m_socket = socket.borrow_mut();
-        util::write_u32(0x668e33ef_u32, &mut m_socket); // STRUCTURED REPLY MAGIC
-        util::write_u16(flags, &mut m_socket);
-        util::write_u16(reply_type, &mut m_socket);
-        util::write_u64(handle, &mut m_socket);
-        util::write_u32(length_of_payload, &mut m_socket);
+        let m_socket = &*socket.borrow();
+        let mut buf = BufWriter::new(m_socket);
+        buf.write(&0x668e33ef_u32.to_be_bytes()).unwrap();
+        buf.write(&flags.to_be_bytes()).unwrap();
+        buf.write(&reply_type.to_be_bytes()).unwrap();
+        buf.write(&handle.to_be_bytes()).unwrap();
+        buf.write(&length_of_payload.to_be_bytes()).unwrap();
+        buf.flush().unwrap();
     }
 
     fn handle_option(&self) {
@@ -414,11 +424,13 @@ impl NBDSession {
 
     fn reply(&self, opt: u32, reply_type: u32, len: u32) {
         let socket = Rc::clone(&self.socket);
-        let mut m_socket = socket.borrow_mut();
-        util::write_u64(0x3e889045565a9, &mut m_socket); // REPLY MAGIC
-        util::write_u32(opt, &mut m_socket);
-        util::write_u32(reply_type, &mut m_socket);
-        util::write_u32(len, &mut m_socket);
+        let m_socket = &*socket.borrow();
+        let mut buf = BufWriter::new(m_socket);
+        buf.write(&0x3e889045565a9_u64.to_be_bytes()).unwrap(); // Reply Magic
+        buf.write(&opt.to_be_bytes()).unwrap();
+        buf.write(&reply_type.to_be_bytes()).unwrap();
+        buf.write(&len.to_be_bytes()).unwrap();
+        buf.flush().unwrap();
     }
 
     fn reply_info_export(&self, opt: u32, export_name: String) {
@@ -445,10 +457,12 @@ impl NBDSession {
         }
         {
             let socket = Rc::clone(&self.socket);
-            let mut m_socket = socket.borrow_mut();
-            util::write_u16(proto::NBD_INFO_EXPORT, &mut m_socket);
-            util::write_u64(volume_size, &mut m_socket);
-            util::write_u16(flags, &mut m_socket);
+            let m_socket = &*socket.borrow();
+            let mut buf = BufWriter::new(m_socket);
+            buf.write(&proto::NBD_INFO_EXPORT.to_be_bytes()).unwrap();
+            buf.write(&volume_size.to_be_bytes()).unwrap();
+            buf.write(&flags.to_be_bytes()).unwrap();
+            buf.flush().unwrap();
         }
         log::debug!("\t-->Export Data Sent:");
         log::debug!("\t-->\t-->NBD_INFO_EXPORT: \t{:?}", proto::NBD_INFO_EXPORT as u16);
@@ -541,10 +555,13 @@ impl NBDSession {
                 }
                 proto::NBD_INFO_NAME => {// 1
                     self.reply(opt, proto::NBD_REP_INFO, 0);
+
                     let socket = Rc::clone(&self.socket);
-                    let mut m_socket = socket.borrow_mut();
-                    util::write_u16(proto::NBD_INFO_NAME, &mut m_socket);
-                    write!(name.as_bytes(), &mut m_socket);
+                    let m_socket = &*socket.borrow();
+                    let mut buf = BufWriter::new(m_socket);
+                    buf.write(&proto::NBD_INFO_NAME.to_be_bytes()).unwrap();
+                    buf.write(&name.as_bytes()).unwrap();
+                    buf.flush().unwrap();
                 }
                 proto::NBD_INFO_DESCRIPTION => {// 2
                     let name_as_bytes = name.as_bytes();
@@ -555,19 +572,23 @@ impl NBDSession {
                         2 + length_of_name as u32
                     );
                     let socket = Rc::clone(&self.socket);
-                    let mut m_socket = socket.borrow_mut();
-                    util::write_u16(proto::NBD_INFO_DESCRIPTION, &mut m_socket);
-                    write!(name_as_bytes, &mut m_socket);
+                    let m_socket = &*socket.borrow();
+                    let mut buf = BufWriter::new(m_socket);
+                    buf.write(&proto::NBD_INFO_DESCRIPTION.to_be_bytes()).unwrap();
+                    buf.write(&name_as_bytes).unwrap();
+                    buf.flush().unwrap();
                 }
                 proto::NBD_INFO_BLOCK_SIZE => {// 3
                     self.reply(opt, proto::NBD_REP_INFO, 14);
                     {
                         let socket = Rc::clone(&self.socket);
-                        let mut m_socket = socket.borrow_mut();
-                        util::write_u16(proto::NBD_INFO_BLOCK_SIZE, &mut m_socket);
-                        util::write_u32(512 as u32, &mut m_socket);
-                        util::write_u32(4*1024 as u32, &mut m_socket);
-                        util::write_u32(32*1024*1024 as u32, &mut m_socket);
+                        let m_socket = &*socket.borrow();
+                        let mut buf = BufWriter::new(m_socket);
+                        buf.write(&proto::NBD_INFO_BLOCK_SIZE.to_be_bytes()).unwrap();
+                        buf.write(&(512 as u32).to_be_bytes()).unwrap();
+                        buf.write(&(4 * 1024 as u32).to_be_bytes()).unwrap();
+                        buf.write(&(32 * 1024 * 1024 as u32).to_be_bytes()).unwrap();
+                        buf.flush().unwrap();
                     }
                     log::debug!("\t-->Sent block size info");
                     self.reply_info_export(opt, name.clone().to_lowercase());
@@ -635,11 +656,11 @@ impl NBDSession {
                     .subsec_nanos();
                 self.metadata_context_id.set(nbd_metadata_context_id);
                 let socket = Rc::clone(&self.socket);
-                let mut m_socket = socket.borrow_mut();
-                util::write_u32(nbd_metadata_context_id, &mut m_socket);
-                m_socket
-                        .write(query.to_lowercase().as_bytes())
-                        .expect("Couldn't send query data");
+                let m_socket = &*socket.borrow();
+                let mut buf = BufWriter::new(m_socket);
+                buf.write(&nbd_metadata_context_id.to_be_bytes()).unwrap();
+                buf.write(&query.to_lowercase().as_bytes()).unwrap();
+                buf.flush().unwrap();
             }
         }
         self.reply(proto::NBD_OPT_SET_META_CONTEXT, proto::NBD_REP_ACK, 0);

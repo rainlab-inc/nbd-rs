@@ -1,7 +1,7 @@
 #![allow(unused_variables)]
 
 use std::{
-    io::{Write},
+    io::{Write, BufWriter},
     net::{SocketAddr, TcpListener, TcpStream},
     sync::{Arc, RwLock},
     collections::{HashMap},
@@ -121,10 +121,12 @@ impl NBDServer {
 
         {
             let socket = Rc::clone(&socket);
-            let mut m_socket = socket.borrow_mut();
-            write!(b"NBDMAGIC", &mut m_socket);
-            write!(b"IHAVEOPT", &mut m_socket);
-            util::write_u16(handshake_flags, &mut m_socket);
+            let m_socket = &*socket.borrow();
+            let mut buf = BufWriter::new(m_socket);
+            buf.write(b"NBDMAGIC").unwrap();
+            buf.write(b"IHAVEOPT").unwrap();
+            buf.write(&handshake_flags.to_be_bytes()).unwrap();
+            buf.flush().unwrap();
         }
         log::trace!("Initial message sent");
 
