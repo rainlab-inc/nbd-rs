@@ -7,31 +7,71 @@ use log;
 
 use crate::{
     object::{ObjectStorage, object_storage_with_config},
-    block::{BlockStorage},
+    block::{BlockStorage, BlockStorageConfig},
 };
 use crate::util::Propagation;
 
 // Driver: ShardedBlock
 
 pub struct ShardedBlock {
-    name: String,
+    name: Option<String>,
     volume_size: u64,
     shard_size: u64,
     object_storage: Box<dyn ObjectStorage>,
 }
 
 impl ShardedBlock {
-    pub fn new(name: String, config: String) -> ShardedBlock {
+    pub fn new(config: BlockStorageConfig) -> ShardedBlock {
         // TODO: Allow configuring disk size in config string
         //       or a setting like `create=true`
         // TODO: Allow configuring shard size in config string
         let default_shard_size: u64 = 4 * 1024 * 1024;
+        let conn_str = config.conn_str.clone();
         let mut sharded_file = ShardedBlock {
-            name: name.clone(),
+            name: config.export_name.clone(),
             volume_size: 0_u64,
             shard_size: default_shard_size,
-            object_storage: object_storage_with_config(config).unwrap(),
+            object_storage: object_storage_with_config(conn_str).unwrap(),
         };
+
+        if config.export_name.is_none() && config.export_size.is_some() {
+            // Initialize volume
+            let volume_size = config.export_size.unwrap() as u64;
+            log::info!("Volume size: {}", volume_size);
+            sharded_file.volume_size = volume_size;
+
+            /* Check initialized */
+            let size = sharded_file.object_storage.read("size".to_string());
+            if size.is_ok() {
+                /* Already initialized */
+                let size = String::from_utf8(sharded_file.object_storage.read("size".to_string()).unwrap()).unwrap();
+                let size: u64 = size.parse().unwrap();
+                if size == volume_size {
+                    log::warn!("Block storage is already initialized with the same size: {}", size);
+                } else {
+                    if !config.export_force {
+                        log::error!("Block storage is already initialized and the size is configured to be {}, add --force to override current configuration", size);
+                        panic!();
+                    } else {
+                        log::warn!("Block storage is already initialized with size: {}", size);
+                    }
+                }
+            }
+
+            let size_str = volume_size.to_string();
+            sharded_file.object_storage.write(String::from("size"), &size_str.as_bytes());
+            log::info!("Volume size is written.");
+
+        } else if config.export_name.is_some() && config.export_size.is_none() {
+            let size = String::from_utf8(sharded_file.object_storage.read("size".to_string()).unwrap()).unwrap();
+            let size: u64 = size.parse().unwrap();
+            log::info!("Volume size of the block stoage is {}", size);
+            sharded_file.volume_size = size;
+
+        } else {
+            panic!("Unreachable");
+        }
+
         sharded_file.init();
         sharded_file
     }
@@ -64,7 +104,7 @@ impl BlockStorage for ShardedBlock {
     }
 
     fn get_name(&self) -> String {
-        self.name.clone()
+        self.name.clone().unwrap()
     }
 
     fn get_volume_size(&self) -> u64 {

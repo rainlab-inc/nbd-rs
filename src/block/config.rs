@@ -21,10 +21,11 @@ pub fn block_storage_with_config(config: BlockStorageConfig) -> Result<Box<dyn B
         "raw" => {
             Ok(Box::new(RawBlock::new(export_name.clone(), config)))
         },
-        "sharded" => {
-            Ok(Box::new(ShardedBlock::new(export_name.to_lowercase().clone(), config)))
-        },
        */
+        "sharded" => {
+            Ok(Box::new(ShardedBlock::new(config)))
+        },
+        
         "distributed" => {
             Ok(Box::new(DistributedBlock::new(config)))
         }
