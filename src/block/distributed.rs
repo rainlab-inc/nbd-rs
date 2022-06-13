@@ -87,6 +87,7 @@ impl DistributedBlock {
             for (i, storage) in distributed_block.object_storages.iter().enumerate() {
                 let size_str = volume_size.to_string();
                 storage.write(String::from("size"), &size_str.as_bytes());
+                storage.persist_object(String::from("size"));
                 log::info!("Volume size written to: node-{}", i);
             }
         } else if config.export_name.is_some() && config.export_size.is_none() {
