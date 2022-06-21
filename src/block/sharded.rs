@@ -327,10 +327,17 @@ mod sharded_tests {
                             .open(Path::new(&path).join("size"))
                             .unwrap();
         size_file.write(format!("{}", size).as_bytes());
-        let sharded_block = ShardedBlock::new(
-            String::from("test"),
-            format!("file:///{}", path)
-        );
+        
+        let config = BlockStorageConfig{
+            export_name: Some("test".to_string()),
+            export_size: Some(size),
+            export_force: false,
+            driver: "sharded".to_string(),
+            conn_str: format!("file:///{}", path)
+        };
+
+
+        let sharded_block = ShardedBlock::new(config);
         assert!(sharded_block.size_of_volume() == size as u64);
         sharded_block
     }
