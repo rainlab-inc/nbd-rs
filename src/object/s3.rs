@@ -177,6 +177,7 @@ pub struct S3Backend {
     url: String,
     client: S3Client,
     bucket: String,
+    prefix: String,
 }
 
 impl S3Backend {
@@ -185,6 +186,15 @@ impl S3Backend {
             .expect("Failed to parse config (URL)");
 
         let password = parsed_url.password().unwrap();
+        let mut path_segments = parsed_url.path_segments().unwrap();
+        let bucket = path_segments.next().unwrap().to_string();
+        let segments:Vec<&str> = path_segments.collect();
+        let mut prefix = String::new();
+        for segment in segments {
+            prefix.push_str(segment);
+            prefix.push_str("/");
+        }
+
         S3Backend {
             url: url.clone(),
             client: S3Client::new(S3Config {
@@ -198,7 +208,8 @@ impl S3Backend {
                 secret_key: password.clone().to_string(),
                 path_style: true, // TODO: Derive from URL
             }),
-            bucket: parsed_url.path_segments().unwrap().next().unwrap().to_string(),
+            bucket,
+            prefix,
         }
     }
 }
@@ -209,6 +220,7 @@ impl SimpleObjectStorage for S3Backend {
     }
 
     fn exists(&self, object_name: String) -> Result<bool, Error> {
+        let object_name = format!("{}{}", self.prefix, object_name);
         let object_meta = self.client.get_object_meta(self.bucket.clone(), object_name.clone());
         if object_meta.is_err() {
             let err = object_meta.err().unwrap();
@@ -221,21 +233,25 @@ impl SimpleObjectStorage for S3Backend {
     }
 
     fn read(&self, object_name: String) -> Result<Vec<u8>, Error> {
+        let object_name = format!("{}{}", self.prefix, object_name);
         let data = self.client.get_object(self.bucket.clone(), object_name.clone())?;
         Ok(data)
     }
 
     fn write(&self, object_name: String, data: &[u8]) -> Result<Propagation, Error> {
+        let object_name = format!("{}{}", self.prefix, object_name);
         self.client.put_object(self.bucket.clone(), object_name.clone(), data)?;
         Ok(Propagation::Complete)
     }
 
     fn delete(&self, object_name: String) -> Result<Propagation, Error> {
+        let object_name = format!("{}{}", self.prefix, object_name);
         self.client.delete_object(self.bucket.clone(), object_name.clone())?;
         Ok(Propagation::Complete)
     }
 
     fn get_size(&self, object_name: String) -> Result<u64, Error> {
+        let object_name = format!("{}{}", self.prefix, object_name);
         let object_meta = self.client.get_object_meta(self.bucket.clone(), object_name.clone())?;
         Ok(object_meta.size)
     }
