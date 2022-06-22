@@ -60,7 +60,7 @@ impl FileBackend {
             return Ok(Arc::clone(&mapped_file.unwrap().1));
         }
 
-        let mapped_refcell = Arc::new(RwLock::new(MappedFile::open(object_name.clone())?));
+        let mapped_refcell = Arc::new(RwLock::new(MappedFile::open(self.obj_path(object_name.clone()))?));
         let mapped = mapped_refcell.clone();
         open_files.insert(object_name.clone(), mapped_refcell);
         Ok(mapped)
@@ -321,37 +321,85 @@ impl ObjectStorage for FileBackend {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{
+        fs::{OpenOptions},
+        io::{Write},
+        path::{Path},
+    };
+    use crate::util::test_utils::TempFolder;
 
     #[test]
     fn test_file_backend_get_file() {
+        let folder = TempFolder::new();
+        let dummy_file_name = String::from("dummy_file");
+        let mut dummy_file = OpenOptions::new()
+                            .write(true)
+                            .create(true)
+                            .open(Path::new(&folder.path).join(dummy_file_name.clone()))
+                            .unwrap();
+        dummy_file.write(&[0_u8; 1024]);
         let filesystem = FileBackend {
-            folder_path: String::from("alpine"),
+            folder_path: folder.path.clone(),
             ..FileBackend::default()
         };
-        let mapped_file = filesystem.get_file(String::from("alpine"));
+
+        let mapped_file = filesystem.get_file(dummy_file_name.clone());
         assert!(mapped_file.is_ok());
-        let mapped_file_2 = filesystem.get_file(String::from("alpine"));
+        let mapped_file_2 = filesystem.get_file(dummy_file_name.clone());
         assert!(mapped_file_2.is_ok());
     }
 
     #[test]
     fn test_file_backend_init() {
+        let folder = TempFolder::new();
+        let dummy_file_name = String::from("dummy_file");
+        let mut dummy_file = OpenOptions::new()
+                            .write(true)
+                            .create(true)
+                            .open(Path::new(&folder.path).join(dummy_file_name.clone()))
+                            .unwrap();
+        dummy_file.write(&[0_u8; 1024]);
         let mut filesystem = FileBackend::default();
+
         assert!(&filesystem.folder_path == "");
-        filesystem.init(String::from("alpine"));
-        assert!(&filesystem.folder_path == "alpine");
+        filesystem.init(folder.path.clone());
+        assert!(&filesystem.folder_path == &folder.path);
     }
 
     #[test]
     fn test_file_backend_start_operations_on_object() {
-        let mut filesystem = FileBackend::default();
-        filesystem.start_operations_on_object(String::from("alpine"));
+        let folder = TempFolder::new();
+        let dummy_file_name = String::from("dummy_file");
+        let mut dummy_file = OpenOptions::new()
+                            .write(true)
+                            .create(true)
+                            .open(Path::new(&folder.path).join(dummy_file_name.clone()))
+                            .unwrap();
+        dummy_file.write(&[0_u8; 1024]);
+        let filesystem = FileBackend {
+            folder_path: folder.path.clone(),
+            ..FileBackend::default()
+        };
+
+        filesystem.start_operations_on_object(dummy_file_name.clone());
     }
 
     #[test]
     fn test_file_backend_end_operations_on_object() {
-        let mut filesystem = FileBackend::default();
-        filesystem.start_operations_on_object(String::from("alpine"));
-        filesystem.end_operations_on_object(String::from("alpine"));
+        let folder = TempFolder::new();
+        let dummy_file_name = String::from("dummy_file");
+        let mut dummy_file = OpenOptions::new()
+                            .write(true)
+                            .create(true)
+                            .open(Path::new(&folder.path).join(dummy_file_name.clone()))
+                            .unwrap();
+        dummy_file.write(&[0_u8; 1024]);
+        let filesystem = FileBackend {
+            folder_path: folder.path.clone(),
+            ..FileBackend::default()
+        };
+
+        filesystem.start_operations_on_object(dummy_file_name.clone());
+        filesystem.end_operations_on_object(dummy_file_name.clone());
     }
 }
