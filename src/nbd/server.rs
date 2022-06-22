@@ -37,7 +37,7 @@ pub struct NBDExport {
 impl NBDExport {
     pub fn new(name: String, driver_type: String, conn_str: String) -> NBDExport {
         // TODO: unhardcode below from here (it is okay to hardcode in block/mod.rs though)
-        if !["raw", "sharded"].contains(&driver_type.as_str()) {
+        if !["raw", "sharded", "distributed"].contains(&driver_type.as_str()) {
             panic!("Driver must be one of the values `raw` or `sharded`. Found '{}'", driver_type);
         }
         let driver = block_storage_with_config(

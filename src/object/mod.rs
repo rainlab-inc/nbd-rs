@@ -4,6 +4,7 @@ use std::{
 
 mod config;
 pub use self::config::object_storage_with_config;
+pub use self::config::object_storages_with_config;
 
 mod file;
 pub use self::file::FileBackend;

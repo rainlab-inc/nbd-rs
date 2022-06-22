@@ -1,4 +1,5 @@
 use std::io::{Error,ErrorKind};
+use log::log;
 
 use crate::object::ObjectStorage;
 use crate::object::FileBackend;
@@ -18,7 +19,7 @@ pub fn object_storage_with_config(config: String) -> Result<Box<dyn ObjectStorag
 
     return match driver_name {
         "file" => {
-            Ok(Box::new(FileBackend::new(driver_config.replace("///", ""))))
+            Ok(Box::new(FileBackend::new(driver_config.replace("///", "/"))))
         },
         "s3" => {
             Ok(Box::new(S3Backend::new(driver_config)))
@@ -31,4 +32,15 @@ pub fn object_storage_with_config(config: String) -> Result<Box<dyn ObjectStorag
             Err(Error::new(ErrorKind::Unsupported, "Not Supported"))
         }
     };
+}
+
+pub fn object_storages_with_config(config: String) -> Result<Vec<Box<dyn ObjectStorage>>, Error> {
+    let split: Vec<&str> = config.split(",").collect();
+    let mut object_storages:Vec<Box<dyn ObjectStorage>> = Vec::new();
+
+    for cfg in split {
+        let object_storage = object_storage_with_config(String::from(cfg))?;
+        object_storages.push(object_storage);
+    }
+    Ok(object_storages)
 }
