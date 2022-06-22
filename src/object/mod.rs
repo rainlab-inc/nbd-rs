@@ -22,6 +22,8 @@ pub trait SimpleObjectStorage {
     // simplest interface
     fn exists   (&self, object_name: String) -> Result<bool, Error>;
     fn get_size (&self, object_name: String) -> Result<u64, Error>;
+    fn get_object_list(&self) -> Result<Vec<ObjectMeta>, Error>;
+    fn get_object_list_with_prefix(&self, prefix: String) -> Result<Vec<ObjectMeta>, Error>;
     fn supports_trim(&self) -> bool {
         false
     }
@@ -70,3 +72,9 @@ pub trait StreamingPartialAccessObjectStorage {
 }
 
 pub trait ObjectStorage: SimpleObjectStorage + PartialAccessObjectStorage + StreamingObjectStorage + StreamingPartialAccessObjectStorage + Send {}
+
+#[derive(Debug)]
+pub struct ObjectMeta {
+    pub path: String,
+    pub size: u64
+}

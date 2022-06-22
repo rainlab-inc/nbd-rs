@@ -7,13 +7,13 @@ use log;
 use s3::bucket::Bucket;
 use s3::creds::Credentials;
 use s3::region::Region;
-
 use crate::object::{
     ObjectStorage,
     SimpleObjectStorage,
     PartialAccessObjectStorage,
     StreamingObjectStorage,
     StreamingPartialAccessObjectStorage,
+    ObjectMeta,
 };
 use crate::util::Propagation;
 
@@ -30,6 +30,7 @@ struct S3Client {
     config: S3Config
 }
 
+#[derive(Debug)]
 struct S3ObjectMeta {
     bucket: String,
     name: String,
@@ -60,8 +61,23 @@ impl S3Client {
         Ok(())
     }
 
-    pub fn get_object_list(&self, bucket: String) -> Result<Vec<String>, Error> {
-        Err(Error::new(ErrorKind::Unsupported, "Not yet implemented"))
+    pub fn get_object_list_with_prefix(&self, bucket_name: String, prefix: String) -> Result<Vec<S3ObjectMeta>, Error> {
+        log::debug!("S3Client.get_object_list({})", bucket_name.clone());
+        let mut object_list = Vec::new();
+
+        let bucket = self.bucket(bucket_name.clone());
+        let list = bucket.list_blocking(prefix, None).unwrap();
+        for res in list {
+           for content in res.contents {
+              let object = S3ObjectMeta{
+                  bucket: bucket_name.clone(),
+                  name: content.key.clone(),
+                  size: content.size,
+              };
+              object_list.push(object);
+           }
+        }
+        Ok(object_list)
     }
 
     pub fn get_object(&self, bucket_name: String, name: String) -> Result<Vec<u8>, Error> {
@@ -254,6 +270,25 @@ impl SimpleObjectStorage for S3Backend {
         let object_name = format!("{}{}", self.prefix, object_name);
         let object_meta = self.client.get_object_meta(self.bucket.clone(), object_name.clone())?;
         Ok(object_meta.size)
+    }
+    
+    fn get_object_list(&self) -> Result<Vec<ObjectMeta>, Error> {
+        self.get_object_list_with_prefix("".to_string())
+    }
+    
+    fn get_object_list_with_prefix(&self, prefix: String) -> Result<Vec<ObjectMeta>, Error> {
+        let mut object_list = Vec::new();
+        let path = self.prefix.clone() + prefix.as_str();
+        let s3_object_list = self.client.get_object_list_with_prefix(self.bucket.clone(), path)?;
+        for s3_object in s3_object_list {
+            let object = ObjectMeta{
+                // Handle error properly
+                path: s3_object.name.split_once(self.prefix.as_str()).unwrap().1.to_string(),
+                size: s3_object.size,
+            };
+            object_list.push(object);
+        }
+        Ok(object_list)
     }
 
     fn start_operations_on_object(&self, object_name: String) -> Result<(), Error> {
