@@ -17,7 +17,6 @@ impl ShardDistribution {
         ShardDistribution{nodes, replicas, distribution}
     }
 
-
     pub fn node_idx_for_shard(&self, shard_idx: usize, replica_idx: u8) -> u8 {
         let mod_shard_idx = shard_idx % self.distribution.len(); 
         self.distribution[mod_shard_idx][replica_idx as usize]
@@ -162,7 +161,6 @@ mod tests {
                 assert_eq!(res.nodes[node_idx][i].replica_idx, expected_replica_idxs[node_idx][i]);
             }
         }
-
     }
 
     #[test]
