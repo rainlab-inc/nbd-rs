@@ -23,7 +23,6 @@ impl ShardDistribution {
     }
 }
 
-
 #[derive(PartialEq)]
 pub struct ReplicaIdentity {
     shard_idx: usize,
