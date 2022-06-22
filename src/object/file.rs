@@ -18,6 +18,7 @@ use crate::object::{
     PartialAccessObjectStorage,
     StreamingObjectStorage,
     StreamingPartialAccessObjectStorage,
+    ObjectMeta,
 };
 use crate::util::Propagation;
 
@@ -68,6 +69,27 @@ impl FileBackend {
 
     fn obj_path(&self, object_name: String) -> PathBuf {
         Path::new(&self.folder_path).join(object_name.clone())
+    }
+
+    fn get_files_inside_folder(&self, path: PathBuf) -> Result<Vec<ObjectMeta>, Error> {
+        let mut files = Vec::new();
+        let paths = path.read_dir()?;
+        for file in paths {
+            let file = file?;
+            if file.file_type().unwrap().is_dir() {
+                let mut folder_vec =  self.get_files_inside_folder(file.path())?;
+                files.append(&mut folder_vec);
+            } else {
+                let obj = ObjectMeta {
+                    path: file.path().into_os_string().into_string().unwrap().split_once(self.folder_path.as_str()).unwrap().1.to_string(),
+                    size: file.metadata()?.len(),
+                };
+                files.push(obj);
+            }
+
+        }
+
+        Ok(files)
     }
 }
 
@@ -184,6 +206,26 @@ impl SimpleObjectStorage for FileBackend {
             .expect(&format!("Error on getting size of: <{}>", object_name.clone()));
 
         Ok(length_data.len())
+    }
+    
+    fn get_object_list(&self) -> Result<Vec<ObjectMeta>, Error> {
+        self.get_object_list_with_prefix("".to_string())
+    }
+    
+    fn get_object_list_with_prefix(&self, prefix: String) -> Result<Vec<ObjectMeta>, Error> {
+        // TODO: Change this to something like grep
+        let path = self.obj_path("".to_string());
+        let files = self.get_files_inside_folder(path);
+        
+        match files {
+            Err(e) => {
+                return Err(e); 
+            },
+            Ok(files) => {
+                let files: Vec<ObjectMeta> = files.into_iter().filter(|x| x.path.starts_with(prefix.as_str())).collect();
+                return Ok(files);
+            }
+        }
     }
 
     fn start_operations_on_object(&self, object_name: String) -> Result<(), Error> {

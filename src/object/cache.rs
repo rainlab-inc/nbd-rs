@@ -22,6 +22,7 @@ use crate::object::{
     PartialAccessObjectStorage,
     StreamingObjectStorage,
     StreamingPartialAccessObjectStorage,
+    ObjectMeta,
 };
 use crate::util::Propagation;
 
@@ -416,6 +417,18 @@ impl SimpleObjectStorage for CacheBackend {
         // TODO: cache this(size only) as well??
         self.read_backend.lock().unwrap().get_size(object_name.clone())
     }
+
+
+    fn get_object_list(&self) -> Result<Vec<ObjectMeta>, Error> {
+        let read_backend = self.read_backend.lock().unwrap();
+        read_backend.get_object_list()
+    }
+    
+    fn get_object_list_with_prefix(&self, prefix: String) -> Result<Vec<ObjectMeta>, Error> {
+        let read_backend = self.read_backend.lock().unwrap();
+        read_backend.get_object_list_with_prefix(prefix)
+    }
+
 
     fn start_operations_on_object(&self, object_name: String) -> Result<(), Error> {
         // increase
