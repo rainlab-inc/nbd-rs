@@ -139,8 +139,6 @@ mod tests {
 
         let res = simulate_distribution(setup);
         assert_eq!(res.nodes.len() as u8, n_nodes);
-
-
         let expected_shard_idxs = vec![
             vec![0,1,2, 6,7,  8],
             vec![0,3,4, 6,9, 10],
