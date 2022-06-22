@@ -30,10 +30,7 @@ fn human_size_to_usize(size_str: &str) -> Result<usize, Box<dyn Error>> {
     return Err("unreachable".into());
 }
 
-
-
-pub fn export_init(size_str: &str, driver_str: &str, driver_cfg_str: &str, force: bool) -> Result<(), Box<dyn Error>> {
-
+pub fn init_export(size_str: &str, driver_str: &str, driver_cfg_str: &str, force: bool) -> Result<(), Box<dyn Error>> {
     let size = human_size_to_usize(size_str)?;
 
     let config = BlockStorageConfig {
@@ -48,17 +45,7 @@ pub fn export_init(size_str: &str, driver_str: &str, driver_cfg_str: &str, force
     Ok(())
 }
 
-pub fn export_serve(export_name: &str, driver_str: &str, driver_cfg_str: &str) -> Result<(), Box<dyn Error>> {
-    let mut exports = Vec::<Arc<RwLock<NBDExport>>>::new();
-
-    let export = Arc::new(RwLock::new(NBDExport::new(
-                export_name.to_string(),
-                String::from(driver_str),
-                String::from(driver_cfg_str),
-                )));
-
-    exports.push(export);
-
+pub fn serve_exports(exports: Vec::<Arc<RwLock<NBDExport>>>) -> Result<(), Box<dyn Error>> {
     let mut server = NBDServer::new("0.0.0.0".to_string(), 10809, exports);
     server.listen();
     Ok(())
