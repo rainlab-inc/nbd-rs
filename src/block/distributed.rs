@@ -17,7 +17,6 @@ pub struct DistributedBlock{
     name: String,
     volume_size: u64,
     shard_size: u64,
-    //object_storage: Box<dyn ObjectStorage>,
     object_storages: Vec<Box<dyn ObjectStorage>>,
     shard_distribution: ShardDistribution,
 }

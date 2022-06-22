@@ -9,19 +9,16 @@ pub struct ShardDistribution {
 
 impl ShardDistribution {
     pub fn new(nodes: u8, replicas: u8) -> ShardDistribution {
- 
         assert!(replicas <= nodes);
 
         let idxs: Vec<u8> = (0..nodes).collect();
         let distribution = idxs.into_iter().combinations(replicas.into()).collect_vec();
-
 
         ShardDistribution{nodes, replicas, distribution}
     }
 
 
     pub fn node_idx_for_shard(&self, shard_idx: usize, replica_idx: u8) -> u8 {
-
         let mod_shard_idx = shard_idx % self.distribution.len(); 
         self.distribution[mod_shard_idx][replica_idx as usize]
     }
@@ -51,7 +48,6 @@ pub struct DistributionSetup {
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
 
     const N_SHARDS: usize = 50;
@@ -126,13 +122,9 @@ mod tests {
         for shard_idx in 0..n_shards {
             for replica_idx in 0..n_replicas {
                 let entry = ReplicaIdentity::new(shard_idx, replica_idx);
-
                 assert!(res.nodes[shard_idx % 2].contains(&entry));
             }
         }
-
-
-
     }
 
     #[test]
@@ -145,11 +137,6 @@ mod tests {
             n_replicas,
             n_shards,
         };
-
-        //let rep_0_node_idxs = vec![0, 0, 0, 1, 1, 2];
-        //let rep_1_node_idxs = vec![1, 2, 3, 2, 3, 3];
-
-        //let rep_node_idxs = vec![rep_0_node_idxs, rep_1_node_idxs];
 
         let res = simulate_distribution(setup);
         assert_eq!(res.nodes.len() as u8, n_nodes);
@@ -168,7 +155,6 @@ mod tests {
             vec![1,1,0, 1,1,0],
             vec![1,1,1, 1,1,1],
         ];
-        
 
         for node_idx in 0..(n_nodes as usize) {
             for i in 0..(n_shards * n_replicas as usize / n_nodes as usize) {
