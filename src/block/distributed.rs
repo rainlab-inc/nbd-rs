@@ -32,7 +32,6 @@ fn get_cfg_entry(split: &Vec<&str>, entry: &str) -> Option<String> {
     None
 }
 
-
 impl DistributedBlock {
     pub fn new(name: String, config: String) -> DistributedBlock{
         // TODO: Allow configuring disk size in config string
@@ -66,11 +65,9 @@ impl DistributedBlock {
         self.shard_index(offset) % self.object_storages.len()
     }
 
-
     pub fn get_object_storage(&self, shard_idx: usize, replica_idx: u8) -> &Box<dyn ObjectStorage> {
         &self.object_storages[self.shard_distribution.node_idx_for_shard(shard_idx, replica_idx) as usize]
     }
-
 
     pub fn size_of_volume(&self) -> u64 {
         let object_name = String::from("size");
@@ -169,7 +166,6 @@ impl BlockStorage for DistributedBlock {
                 }
                 buffer.extend_from_slice(&vec![0_u8; self.shard_size as usize]);
             }
-
         }
         Ok(buffer)
     }
@@ -206,7 +202,6 @@ impl BlockStorage for DistributedBlock {
                 if write_len == self.shard_size as usize {
                     propagated = self.get_object_storage(cur_shard, replica_idx).write(shard_name.clone(), slice)?;
                 }
-
                 // new object
                 else if !self.get_object_storage(cur_shard, replica_idx).exists(shard_name.clone())? {
                     let mut buffer: Vec<u8> = Vec::new();
@@ -239,14 +234,11 @@ impl BlockStorage for DistributedBlock {
                     overall_propagation = propagated;
                 }
             }
-
-
+ 
             if replica_idx == 0 {
                 overall_first_propagation = overall_propagation;
             }
-
         }
-
         Ok(overall_first_propagation)
     }
 
@@ -282,7 +274,6 @@ impl BlockStorage for DistributedBlock {
                 overall_first_propagation = overall_propagation;
             }
         }
-
         Ok(overall_first_propagation)
     }
 
