@@ -24,6 +24,7 @@ pub trait BlockStorage {
     fn init(&mut self);
     fn init_volume(&mut self) -> Result<(), Box<dyn std::error::Error>>;
     fn init_volume_from_remote(&mut self) -> Result<(), Box<dyn std::error::Error>>;
+    fn destroy_volume(&mut self);
     fn get_name(&self) -> String;
     fn get_volume_size(&self) -> u64;
     fn supports_trim(&self) -> bool {

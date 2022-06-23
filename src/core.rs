@@ -50,3 +50,20 @@ pub fn serve_exports(exports: Vec::<Arc<RwLock<NBDExport>>>) -> Result<(), Box<d
     server.listen();
     Ok(())
 }
+
+pub fn destroy_export(driver_str: &str, driver_cfg_str: &str) -> Result<(), Box<dyn Error>> {
+    let config = BlockStorageConfig {
+        export_name: None,
+        export_size: None,
+        export_force: true,
+        driver: driver_str.to_string(),
+        conn_str: driver_cfg_str.to_string(),
+    };
+
+    let mut block_storage = block_storage_with_config(config)?;
+    block_storage.init_volume_from_remote();
+    block_storage.destroy_volume();
+
+    Ok(())
+
+}

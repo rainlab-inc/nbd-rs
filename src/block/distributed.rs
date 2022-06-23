@@ -187,6 +187,12 @@ impl BlockStorage for DistributedBlock {
 
 
 
+    fn destroy_volume(&mut self) {
+        for storage in &self.object_storages {
+            storage.destroy();
+        }
+    }
+    
     fn get_name(&self) -> String {
         self.name.clone().unwrap()
     }

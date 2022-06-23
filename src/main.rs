@@ -38,6 +38,12 @@ fn main() {
                 .required(true)
             )
         )
+        .subcommand(
+            Command::new("destroy")
+            .about("Destroys the export.")
+            .arg(arg!([DRIVER] "Driver of the export").required(true))
+            .arg(arg!([DRIVER_CFG] "Driver config of the export").required(true)),
+            )
         .get_matches();
 
     let _ = match matches.subcommand() {
@@ -65,6 +71,11 @@ fn main() {
             }
             serve_exports(exports)
         },
+
+        Some(("destroy", sub_matches)) => destroy_export(
+            sub_matches.value_of("DRIVER").unwrap(),
+            sub_matches.value_of("DRIVER_CFG").unwrap(),
+            ),
         _=> Ok(()),
     }.unwrap();
 }

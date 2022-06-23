@@ -120,6 +120,10 @@ impl BlockStorage for ShardedBlock {
             return Err(Error::new(ErrorKind::Other, format!("init_volume_from_remote() is failed.")).into());
         }
     }
+    
+    fn destroy_volume(&mut self) {
+        todo!();
+    }
 
     fn get_name(&self) -> String {
         self.name.clone().unwrap()
