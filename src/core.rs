@@ -41,8 +41,8 @@ pub fn init_export(size_str: &str, driver_str: &str, driver_cfg_str: &str, force
         conn_str: driver_cfg_str.to_string(),
     };
 
-    let _block_storage = block_storage_with_config(config)?;
-    Ok(())
+    let mut block_storage = block_storage_with_config(config)?;
+    block_storage.init_volume()
 }
 
 pub fn serve_exports(exports: Vec::<Arc<RwLock<NBDExport>>>) -> Result<(), Box<dyn Error>> {

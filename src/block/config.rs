@@ -5,6 +5,7 @@ use crate::block::RawBlock;
 use crate::block::ShardedBlock;
 use crate::block::DistributedBlock;
 
+#[derive(Clone)]
 pub struct BlockStorageConfig {
     pub export_name: Option<String>,
     pub export_size: Option<usize>,

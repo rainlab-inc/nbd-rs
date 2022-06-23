@@ -50,8 +50,9 @@ impl NBDExport {
             conn_str: conn_str.clone(),
         };
 
+        let mut driver = block_storage_with_config(config).unwrap();
+        driver.init_volume_from_remote().unwrap();
 
-        let driver = block_storage_with_config(config).unwrap();
         let size = driver.get_volume_size() as usize;
 
         log::info!("export {:?} -> {}({:?})", &name, &driver_type, &conn_str);
