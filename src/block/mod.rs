@@ -22,14 +22,8 @@ pub use self::shard_distribution::ShardDistribution;
 
 pub trait BlockStorage {
     fn init(&mut self);
-    fn init_volume(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        todo!();
-        Ok(())
-    }
-    fn init_volume_from_remote(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        todo!();
-        Ok(())
-    }
+    fn init_volume(&mut self) -> Result<(), Box<dyn std::error::Error>>;
+    fn init_volume_from_remote(&mut self) -> Result<(), Box<dyn std::error::Error>>;
     fn get_name(&self) -> String;
     fn get_volume_size(&self) -> u64;
     fn supports_trim(&self) -> bool {

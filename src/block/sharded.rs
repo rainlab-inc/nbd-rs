@@ -105,6 +105,10 @@ impl BlockStorage for ShardedBlock {
     }
     
     fn init_volume_from_remote(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        if self.volume_initialized {
+            return Err(Error::new(ErrorKind::Other, format!("Volume is already initialized.")).into());
+        }
+        
         if self.config.export_name.is_some() && self.config.export_size.is_none() {
             let size = String::from_utf8(self.object_storage.read("size".to_string()).unwrap()).unwrap();
             let size: u64 = size.parse().unwrap();

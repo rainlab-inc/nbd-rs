@@ -1,6 +1,6 @@
 use std::{
     str,
-    io::{Error},
+    io::{Error, ErrorKind},
 };
 
 use log;
@@ -19,6 +19,8 @@ pub struct DistributedBlock{
     shard_size: u64,
     object_storages: Vec<Box<dyn ObjectStorage>>,
     shard_distribution: ShardDistribution,
+    volume_initialized: bool,
+    config: BlockStorageConfig,
 }
 
 fn get_cfg_entry(split: &Vec<&str>, entry: &str) -> Option<String> {
@@ -53,69 +55,11 @@ impl DistributedBlock {
             shard_size: default_shard_size,
             object_storages,
             shard_distribution,
+            volume_initialized: false,
+            config: config.clone(),
         };
 
-        if config.export_name.is_none() && config.export_size.is_some() {
-            // Initialize volume
-            let volume_size = config.export_size.unwrap() as u64;
-            log::info!("Volume size: {}", volume_size);
-            distributed_block.volume_size = volume_size;
-            distributed_block.init();
-
-            /* Check initialized */
-            for (i, storage) in distributed_block.object_storages.iter().enumerate() {
-                let size = storage.read("size".to_string());
-                if size.is_err() {
-                    continue;
-                } else {
-                    let size = String::from_utf8(storage.read("size".to_string()).unwrap()).unwrap();
-                    let size: u64 = size.parse().unwrap();
-                    if size == volume_size {
-                        log::warn!("Node {} is already initialized with the same size: {}", i, size);
-                    } else {
-                        if !config.export_force {
-                            log::error!("Node {} is already initialized and the size is configured to be {}, add --force to override current configuration", i, size);
-                            panic!();
-                        } else {
-                            log::warn!("Node {} is already initialized with size: {}", i, size);
-                        }
-                    }
-                }
-            }
-
-
-            for (i, storage) in distributed_block.object_storages.iter().enumerate() {
-                let size_str = volume_size.to_string();
-                storage.write(String::from("size"), &size_str.as_bytes());
-                storage.persist_object(String::from("size"));
-                log::info!("Volume size written to: node-{}", i);
-            }
-        } else if config.export_name.is_some() && config.export_size.is_none() {
-            let mut volume_size: u64 = 0;
-            let mut first_node = true;
-
-            for (i, storage) in distributed_block.object_storages.iter().enumerate() {
-                let size = String::from_utf8(storage.read("size".to_string()).unwrap()).unwrap();
-                let tmp_volume_size = size.parse().unwrap();
-                log::info!("Volume size in the node-{} is {}", i, tmp_volume_size);
-
-                if first_node {
-                    volume_size = tmp_volume_size;
-                    first_node = false;
-                    continue;
-                }
-
-                if tmp_volume_size != volume_size {
-                    panic!("Volume sizes should be same for each node.");
-                }
-            }
-
-            log::info!("Volume sizes are same for all nodes: {}", volume_size);
-            distributed_block.volume_size = volume_size;
-        } else {
-            panic!("Unreachable");
-        }
-
+        distributed_block.init();
         distributed_block
     }
 
@@ -164,6 +108,84 @@ impl BlockStorage for DistributedBlock {
     fn init(&mut self) {
         self.volume_size = self.size_of_volume();
     }
+
+    fn init_volume(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        if self.volume_initialized {
+            return Err(Error::new(ErrorKind::Other, format!("Volume is already initialized.")).into());
+        }
+        
+        // Initialize volume
+        let volume_size = self.config.export_size.unwrap() as u64;
+        log::info!("Volume size: {}", volume_size);
+        self.volume_size = volume_size;
+            
+        /* Check initialized */
+        for (i, storage) in self.object_storages.iter().enumerate() {
+            let size = storage.read("size".to_string());
+            if size.is_err() {
+                continue;
+            } else {
+                let size = String::from_utf8(storage.read("size".to_string()).unwrap()).unwrap();
+                let size: u64 = size.parse().unwrap();
+                if size == volume_size {
+                    log::warn!("Node {} is already initialized with the same size: {}", i, size);
+                } else {
+                    if !self.config.export_force {
+                        log::error!("Node {} is already initialized and the size is configured to be {}, add --force to override current configuration", i, size);
+                        panic!();
+                    } else {
+                        log::warn!("Node {} is already initialized with size: {}", i, size);
+                    }
+                }
+            }
+        }
+
+        for (i, storage) in self.object_storages.iter().enumerate() {
+            let size_str = volume_size.to_string();
+            storage.write(String::from("size"), &size_str.as_bytes());
+            storage.persist_object(String::from("size"));
+            log::info!("Volume size written to: node-{}", i);
+        }
+
+        self.volume_initialized = true;
+        Ok(())
+    }
+    
+    fn init_volume_from_remote(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        if self.volume_initialized {
+            return Err(Error::new(ErrorKind::Other, format!("Volume is already initialized.")).into());
+        }
+        
+        if self.config.export_name.is_some() && self.config.export_size.is_none() {
+            let mut volume_size: u64 = 0;
+            let mut first_node = true;
+
+            for (i, storage) in self.object_storages.iter().enumerate() {
+                let size = String::from_utf8(storage.read("size".to_string()).unwrap()).unwrap();
+                let tmp_volume_size = size.parse().unwrap();
+                log::info!("Volume size in the node-{} is {}", i, tmp_volume_size);
+
+                if first_node {
+                    volume_size = tmp_volume_size;
+                    first_node = false;
+                    continue;
+                }
+
+                if tmp_volume_size != volume_size {
+                    return Err(Error::new(ErrorKind::Other, format!("Volume sizes should be same for each node.")).into());
+                }
+            }
+
+            log::info!("Volume sizes are same for all nodes: {}", volume_size);
+            self.volume_size = volume_size;
+            self.volume_initialized = true;
+            Ok(())
+        } else {
+            return Err(Error::new(ErrorKind::Other, format!("init_volume_from_remote() is failed.")).into());
+        }
+    }
+
+
 
     fn get_name(&self) -> String {
         self.name.clone().unwrap()
