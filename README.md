@@ -114,7 +114,8 @@ RUST_LOG=trace ./target/debug/nbd-rs -e my_raw_export sharded s3:/export/path/
 
 ```sh
 docker build -t dkr.local/nbd-rs:dev .
-docker run -it --rm -p 10809:10809 dkr.local/nbd-rs:dev --export ${EXPORT_NAME} raw file:/test/
+fallocate -l 64M image1.raw
+docker run -it --rm -p 10809:10809 -v $(pwd):/opt/nbd -e RUST_BACKTRACE=full dkr.local/nbd-rs:dev --export ${EXPORT_NAME} raw file:/opt/nbd/image1.raw
 ```
 
 > See `Run` section for more information on arguments.
@@ -122,7 +123,7 @@ docker run -it --rm -p 10809:10809 dkr.local/nbd-rs:dev --export ${EXPORT_NAME} 
 ## Test
 
 ```sh
-qemu-img info nbd:localhost:10809;exportname=${EXPORT_NAME}
+qemu-img info nbd:localhost:10809:exportname=${EXPORT_NAME}
 ```
 
 Write local image to NBD:
