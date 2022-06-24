@@ -49,7 +49,7 @@ impl DistributedBlock {
         let object_storages = object_storages_with_config(backends).unwrap();
         let shard_distribution = ShardDistribution::new(object_storages.len() as u8, replicas);
 
-        let mut distributed_block = DistributedBlock {
+        let distributed_block = DistributedBlock {
             name: config.export_name.clone(),
             volume_size: 0,
             shard_size: default_shard_size,
@@ -59,7 +59,6 @@ impl DistributedBlock {
             config: config.clone(),
         };
 
-        distributed_block.init();
         distributed_block
     }
 
@@ -106,7 +105,6 @@ impl DistributedBlock {
 
 impl BlockStorage for DistributedBlock {
     fn init(&mut self) {
-        self.volume_size = self.size_of_volume();
     }
 
     fn init_volume(&mut self) -> Result<(), Box<dyn std::error::Error>> {
@@ -139,6 +137,8 @@ impl BlockStorage for DistributedBlock {
                 }
             }
         }
+        
+        log::info!("Initializing volume with size: {}", volume_size);
 
         for (i, storage) in self.object_storages.iter().enumerate() {
             let size_str = volume_size.to_string();
@@ -148,6 +148,7 @@ impl BlockStorage for DistributedBlock {
         }
 
         self.volume_initialized = true;
+        self.init();
         Ok(())
     }
     
@@ -179,6 +180,7 @@ impl BlockStorage for DistributedBlock {
             log::info!("Volume sizes are same for all nodes: {}", volume_size);
             self.volume_size = volume_size;
             self.volume_initialized = true;
+            self.init();
             Ok(())
         } else {
             return Err(Error::new(ErrorKind::Other, format!("init_volume_from_remote() is failed.")).into());

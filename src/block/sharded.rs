@@ -29,7 +29,7 @@ impl ShardedBlock {
         // TODO: Allow configuring shard size in config string
         let default_shard_size: u64 = 4 * 1024 * 1024;
         let conn_str = config.conn_str.clone();
-        let mut sharded_file = ShardedBlock {
+        let sharded_file = ShardedBlock {
             name: config.export_name.clone(),
             volume_size: 0_u64,
             shard_size: default_shard_size,
@@ -38,7 +38,6 @@ impl ShardedBlock {
             config: config.clone(),
         };
 
-        sharded_file.init();
         sharded_file
     }
 
@@ -66,7 +65,6 @@ impl ShardedBlock {
 
 impl BlockStorage for ShardedBlock {
     fn init(&mut self) {
-        self.volume_size = self.size_of_volume();
     }
 
     fn init_volume(&mut self) -> Result<(), Box<dyn std::error::Error>> {
@@ -98,9 +96,11 @@ impl BlockStorage for ShardedBlock {
             
         let size_str = volume_size.to_string();
         self.object_storage.write(String::from("size"), &size_str.as_bytes());
+        log::info!("Initializing volume with size: {}", volume_size);
         log::info!("Volume size is written.");
         
         self.volume_initialized = true;
+        self.init();
         Ok(())
     }
     
@@ -115,6 +115,7 @@ impl BlockStorage for ShardedBlock {
             log::info!("Volume size of the block stoage is {}", size);
             self.volume_size = size;
             self.volume_initialized = true;
+            self.init();
             Ok(())
         } else {
             return Err(Error::new(ErrorKind::Other, format!("init_volume_from_remote() is failed.")).into());
