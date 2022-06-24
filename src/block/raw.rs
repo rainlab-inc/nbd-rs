@@ -105,7 +105,8 @@ impl BlockStorage for RawBlock {
     }
     
     fn destroy_volume(&mut self) {
-        todo!();
+        self.object_storage.destroy();
+        self.volume_initialized = false;
     }
 
     fn get_name(&self) -> String {

@@ -191,6 +191,7 @@ impl BlockStorage for DistributedBlock {
         for storage in &self.object_storages {
             storage.destroy();
         }
+        self.volume_initialized = false;
     }
     
     fn get_name(&self) -> String {
