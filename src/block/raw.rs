@@ -1,5 +1,7 @@
 use std::{
-    io::{Error, ErrorKind}
+    io::{Error, ErrorKind, SeekFrom, Seek, Write},
+    fs::{File},
+    path::{Path},
 };
 use url::{Url};
 
@@ -30,7 +32,7 @@ impl RawBlock {
         let filename = segments.path_segments().unwrap().last().unwrap();
         let new_config = segments.as_str().strip_suffix(filename).unwrap();
 
-        let mut selfref = RawBlock {
+        let selfref = RawBlock {
             export_name: config.export_name.clone(),
             name: String::from(filename),
             volume_size: 0_u64,
@@ -39,36 +41,29 @@ impl RawBlock {
             config: config.clone(),
         };
 
-        selfref.init();
         selfref
     }
 }
 
 impl BlockStorage for RawBlock {
     fn init(&mut self) {
-        self.object_storage
-            .start_operations_on_object(self.name.clone()).unwrap();
-
-        self.volume_size = self.object_storage.get_size(self.name.clone()).unwrap_or(0);
+        assert!(self.volume_initialized, "Should initialize the volume first");
+        self.object_storage.start_operations_on_object(self.name.clone()).unwrap();
     }
 
     fn init_volume(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         if self.volume_initialized {
             return Err(Error::new(ErrorKind::Other, format!("Volume is already initialized.")).into());
         }
-        
-        // Initialize volume
-        let volume_size = self.config.export_size.unwrap() as u64;
-        log::info!("Volume size: {}", volume_size);
-        self.volume_size = volume_size;
-            
-        /* Check initialized */
-        let size = self.object_storage.read("size".to_string());
-        if size.is_ok() {
-            /* Already initialized */
-            let size = String::from_utf8(self.object_storage.read("size".to_string()).unwrap()).unwrap();
-            let size: u64 = size.parse().unwrap();
-            if size == volume_size {
+
+
+        let path = Path::new(self.name.as_str());
+        /* Check file is already exist */
+        if path.is_file() {
+            let file = File::open(path)?;
+            let size = file.metadata()?.len();
+
+            if size == self.config.export_size.unwrap() as u64 {
                 log::warn!("Block storage is already initialized with the same size: {}", size);
             } else {
                 if !self.config.export_force {
@@ -78,12 +73,22 @@ impl BlockStorage for RawBlock {
                 }
             }
         }
-            
-        let size_str = volume_size.to_string();
-        self.object_storage.write(String::from("size"), &size_str.as_bytes());
+
+        
+
+        let mut file = File::create(self.name.clone())?;
+        let volume_size = self.config.export_size.unwrap() as u64;
+        log::info!("Initializing volume: {} with size: {}", self.name, volume_size);
+
+        file.seek(SeekFrom::Start(volume_size - 1))?;
+        file.write_all(&[0_u8])?;
+
+        
         log::info!("Volume size is written.");
         
+        self.volume_size = volume_size;
         self.volume_initialized = true;
+        self.init();
         Ok(())
     }
     
@@ -93,11 +98,11 @@ impl BlockStorage for RawBlock {
         }
         
         if self.config.export_name.is_some() && self.config.export_size.is_none() {
-            let size = String::from_utf8(self.object_storage.read("size".to_string()).unwrap()).unwrap();
-            let size: u64 = size.parse().unwrap();
-            log::info!("Volume size of the block stoage is {}", size);
-            self.volume_size = size;
+            let volume_size = std::fs::metadata(self.name.clone())?.len();
+            log::info!("Volume size of the block stoage is {}", volume_size);
+            self.volume_size = volume_size;
             self.volume_initialized = true;
+            self.init();
             Ok(())
         } else {
             return Err(Error::new(ErrorKind::Other, format!("init_volume_from_remote() is failed.")).into());
