@@ -24,7 +24,7 @@ pub struct RawBlock {
 impl RawBlock {
     pub fn new(config: BlockStorageConfig) -> RawBlock {
         let segments = Url::parse(&config.conn_str).unwrap();
-        let filename = segments.path_segments().unwrap().last().unwrap();
+        let filename = segments.path();
 
         let object_storage = object_storage_with_config(config.conn_str.clone()).unwrap();
         if !object_storage.supports_random_write_access() {
