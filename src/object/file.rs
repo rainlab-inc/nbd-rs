@@ -135,6 +135,10 @@ impl SimpleObjectStorage for FileBackend {
         #[cfg(not(target_os = "linux"))]
         return false;
     }
+    
+    fn supports_random_write_access(&self) -> bool {
+        true
+    }
 
     fn read(&self, object_name: String) -> Result<Vec<u8>, Error> {
         let open_files = self.open_files.read().unwrap();

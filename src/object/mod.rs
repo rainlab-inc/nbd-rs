@@ -30,6 +30,7 @@ pub trait SimpleObjectStorage {
     fn supports_trim(&self) -> bool {
         false
     }
+    fn supports_random_write_access(&self) -> bool;
     fn read     (&self, object_name: String) -> Result<Vec<u8>, Error>;
     fn write    (&self, object_name: String, data: &[u8]) -> Result<Propagation, Error>;
     fn delete   (&self, object_name: String) -> Result<Propagation, Error>;

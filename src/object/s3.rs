@@ -247,6 +247,10 @@ impl SimpleObjectStorage for S3Backend {
         }
         Ok(true)
     }
+    
+    fn supports_random_write_access(&self) -> bool {
+        false
+    }
 
     fn read(&self, object_name: String) -> Result<Vec<u8>, Error> {
         let object_name = format!("{}{}", self.prefix, object_name);
