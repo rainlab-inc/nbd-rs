@@ -88,18 +88,15 @@ impl BlockStorage for RawBlock {
     }
     
     fn check_volume(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        if self.config.export_name.is_some() && self.config.export_size.is_none() {
-            let volume_size = std::fs::metadata(self.name.clone())?.len();
-            log::info!("Volume size of the block stoage is {}", volume_size);
-            self.volume_size = volume_size;
-            Ok(())
-        } else {
-            return Err(Error::new(ErrorKind::Other, format!("check_volume() is failed.")).into());
-        }
+        let volume_size = std::fs::metadata(self.name.clone())?.len();
+        log::info!("Volume size of the block storage is {}", volume_size);
+        self.volume_size = volume_size;
+        Ok(())
     }
     
     fn destroy_volume(&mut self) {
-        self.object_storage.destroy();
+        std::fs::remove_file(self.name.clone()).unwrap();
+        log::info!("The volume is destroyed.");
     }
 
     fn get_name(&self) -> String {

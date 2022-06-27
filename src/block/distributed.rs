@@ -151,32 +151,28 @@ impl BlockStorage for DistributedBlock {
     }
     
     fn check_volume(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        if self.config.export_name.is_some() && self.config.export_size.is_none() {
-            let mut volume_size: u64 = 0;
-            let mut first_node = true;
+        let mut volume_size: u64 = 0;
+        let mut first_node = true;
 
-            for (i, storage) in self.object_storages.iter().enumerate() {
-                let size = String::from_utf8(storage.read("size".to_string()).unwrap()).unwrap();
-                let tmp_volume_size = size.parse().unwrap();
-                log::info!("Volume size in the node-{} is {}", i, tmp_volume_size);
+        for (i, storage) in self.object_storages.iter().enumerate() {
+            let size = String::from_utf8(storage.read("size".to_string()).unwrap()).unwrap();
+            let tmp_volume_size = size.parse().unwrap();
+            log::info!("Volume size in the node-{} is {}", i, tmp_volume_size);
 
-                if first_node {
-                    volume_size = tmp_volume_size;
-                    first_node = false;
-                    continue;
-                }
-
-                if tmp_volume_size != volume_size {
-                    return Err(Error::new(ErrorKind::Other, format!("Volume sizes should be same for each node.")).into());
-                }
+            if first_node {
+                volume_size = tmp_volume_size;
+                first_node = false;
+                continue;
             }
 
-            log::info!("Volume sizes are same for all nodes: {}", volume_size);
-            self.volume_size = volume_size;
-            Ok(())
-        } else {
-            return Err(Error::new(ErrorKind::Other, format!("check_volume() is failed.")).into());
+            if tmp_volume_size != volume_size {
+                return Err(Error::new(ErrorKind::Other, format!("Volume sizes should be same for each node.")).into());
+            }
         }
+
+        log::info!("Volume sizes are same for all nodes: {}", volume_size);
+        self.volume_size = volume_size;
+        Ok(())
     }
 
 
@@ -185,6 +181,7 @@ impl BlockStorage for DistributedBlock {
         for storage in &self.object_storages {
             storage.destroy();
         }
+        log::info!("The volume is destroyed.");
     }
     
     fn get_name(&self) -> String {
