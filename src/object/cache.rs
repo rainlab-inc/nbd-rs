@@ -434,10 +434,10 @@ impl SimpleObjectStorage for CacheBackend {
     }
     
     fn destroy(&self) {
-        todo!();
+        let write_backend = self.write_backend.lock().unwrap();
+        write_backend.destroy();
     }
-
-
+ 
     fn start_operations_on_object(&self, object_name: String) -> Result<(), Error> {
         // increase
         let cache = self.cache.write().unwrap();
