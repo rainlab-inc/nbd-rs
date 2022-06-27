@@ -345,7 +345,8 @@ mod sharded_tests {
             export_size: Some(size),
             export_force: false,
             driver: "sharded".to_string(),
-            conn_str: format!("file:///{}", path)
+            conn_str: format!("file:///{}", path),
+            init_volume: false,
         };
 
 
