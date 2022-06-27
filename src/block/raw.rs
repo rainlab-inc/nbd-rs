@@ -24,19 +24,19 @@ pub struct RawBlock {
 
 impl RawBlock {
     pub fn new(config: BlockStorageConfig) -> RawBlock {
-        let mut split: Vec<&str> = config.conn_str.split(":").collect();
-        let driver_name = split.remove(0);
-        let driver_config = split.join(":");
-
-        let segments = Url::from_file_path(&driver_config).unwrap();
+        let segments = Url::parse(&config.conn_str).unwrap();
         let filename = segments.path_segments().unwrap().last().unwrap();
-        let new_config = segments.as_str().strip_suffix(filename).unwrap();
+
+        let object_storage = object_storage_with_config(config.conn_str.clone()).unwrap();
+        if !object_storage.supports_random_write_access() {
+            panic!("Object storage should support random write access for RawBlock.");
+        }
 
         let selfref = RawBlock {
             export_name: config.export_name.clone(),
             name: String::from(filename),
             volume_size: 0_u64,
-            object_storage: object_storage_with_config(String::from(new_config)).unwrap(),
+            object_storage,
             volume_initialized: false,
             config: config.clone(),
         };
