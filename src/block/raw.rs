@@ -16,6 +16,7 @@ use crate::util::Propagation;
 pub struct RawBlock {
     export_name: Option<String>,
     name: String,
+    path: String,
     volume_size: u64,
     object_storage: Box<dyn ObjectStorage>,
     config: BlockStorageConfig,
@@ -24,9 +25,10 @@ pub struct RawBlock {
 impl RawBlock {
     pub fn new(config: BlockStorageConfig) -> RawBlock {
         let segments = Url::parse(&config.conn_str).unwrap();
-        let filename = segments.path();
+        let filename = segments.path_segments().unwrap().last().unwrap();
+        let new_config = segments.as_str().strip_suffix(filename).unwrap();
 
-        let object_storage = object_storage_with_config(config.conn_str.clone()).unwrap();
+        let object_storage = object_storage_with_config(String::from(new_config)).unwrap();
         if !object_storage.supports_random_write_access() {
             panic!("Object storage should support random write access for RawBlock.");
         }
@@ -34,6 +36,7 @@ impl RawBlock {
         let mut selfref = RawBlock {
             export_name: config.export_name.clone(),
             name: String::from(filename),
+            path: String::from(segments.path()),
             volume_size: 0_u64,
             object_storage,
             config: config.clone(),
@@ -57,7 +60,7 @@ impl BlockStorage for RawBlock {
     }
 
     fn init_volume(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        let path = Path::new(self.name.as_str());
+        let path = Path::new(self.path.as_str());
         /* Check file is already exist */
         if path.is_file() {
             let file = File::open(path)?;
@@ -74,7 +77,7 @@ impl BlockStorage for RawBlock {
             }
         }
 
-        let mut file = File::create(self.name.clone())?;
+        let mut file = File::create(self.path.as_str())?;
         let volume_size = self.config.export_size.unwrap() as u64;
         log::info!("Initializing volume: {} with size: {}", self.name, volume_size);
 
@@ -88,15 +91,15 @@ impl BlockStorage for RawBlock {
     }
     
     fn check_volume(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        let volume_size = std::fs::metadata(self.name.clone())?.len();
+        let volume_size = std::fs::metadata(self.path.clone())?.len();
         log::info!("Volume size of the block storage is {}", volume_size);
         self.volume_size = volume_size;
         Ok(())
     }
     
     fn destroy_volume(&mut self) {
-        std::fs::remove_file(self.name.clone()).unwrap();
-        log::info!("The volume is destroyed.");
+        std::fs::remove_file(self.path.clone()).unwrap();
+        log::info!("The volume({}) is destroyed.", self.path);
     }
 
     fn get_name(&self) -> String {
