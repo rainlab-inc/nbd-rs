@@ -80,8 +80,11 @@ impl FileBackend {
                 let mut folder_vec =  self.get_files_inside_folder(file.path())?;
                 files.append(&mut folder_vec);
             } else {
+                let mut path = file.path().into_os_string().into_string().unwrap().split_once(self.folder_path.as_str()).unwrap().1.to_string();
+                // TODO: remove in a *smarter* way to remove / or \ 
+                path.remove(0);
                 let obj = ObjectMeta {
-                    path: file.path().into_os_string().into_string().unwrap().split_once(self.folder_path.as_str()).unwrap().1.to_string(),
+                    path, 
                     size: file.metadata()?.len(),
                 };
                 files.push(obj);
@@ -233,9 +236,11 @@ impl SimpleObjectStorage for FileBackend {
     }
 
     fn destroy(&self) {
-        todo!();
+        let list = self.get_object_list().unwrap();
+        for item in list {
+            self.delete(item.path);
+        }
     }
-
 
     fn start_operations_on_object(&self, object_name: String) -> Result<(), Error> {
         self.get_file(object_name);
