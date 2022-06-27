@@ -317,6 +317,10 @@ impl SimpleObjectStorage for CacheBackend {
             self.read_backend.lock().unwrap().exists(object_name.clone())
         })
     }
+    
+    fn supports_random_write_access(&self) -> bool {
+        self.write_backend.lock().unwrap().supports_random_write_access()
+    }
 
     fn read(&self, object_name: String) -> Result<Vec<u8>, Error> {
         let cache = self.cache.read().unwrap();
