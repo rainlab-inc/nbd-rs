@@ -12,6 +12,7 @@ pub struct BlockStorageConfig {
     pub export_force: bool,
     pub driver: String,
     pub conn_str: String,
+    pub init_volume: bool,
 }
 
 pub fn block_storage_with_config(config: BlockStorageConfig) -> Result<Box<dyn BlockStorage>, Error> {

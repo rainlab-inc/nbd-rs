@@ -39,10 +39,11 @@ pub fn init_export(size_str: &str, driver_str: &str, driver_cfg_str: &str, force
         export_force: force,
         driver: driver_str.to_string(),
         conn_str: driver_cfg_str.to_string(),
+        init_volume: true,
     };
 
-    let mut block_storage = block_storage_with_config(config)?;
-    block_storage.init_volume()
+    block_storage_with_config(config)?;
+    Ok(())
 }
 
 pub fn serve_exports(exports: Vec::<Arc<RwLock<NBDExport>>>) -> Result<(), Box<dyn Error>> {
@@ -58,10 +59,10 @@ pub fn destroy_export(driver_str: &str, driver_cfg_str: &str) -> Result<(), Box<
         export_force: true,
         driver: driver_str.to_string(),
         conn_str: driver_cfg_str.to_string(),
+        init_volume: false,
     };
 
     let mut block_storage = block_storage_with_config(config)?;
-    block_storage.init_volume_from_remote();
     block_storage.destroy_volume();
 
     Ok(())

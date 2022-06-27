@@ -19,7 +19,6 @@ pub struct DistributedBlock{
     shard_size: u64,
     object_storages: Vec<Box<dyn ObjectStorage>>,
     shard_distribution: ShardDistribution,
-    volume_initialized: bool,
     config: BlockStorageConfig,
 }
 
@@ -49,16 +48,16 @@ impl DistributedBlock {
         let object_storages = object_storages_with_config(backends).unwrap();
         let shard_distribution = ShardDistribution::new(object_storages.len() as u8, replicas);
 
-        let distributed_block = DistributedBlock {
+        let mut distributed_block = DistributedBlock {
             name: config.export_name.clone(),
             volume_size: 0,
             shard_size: default_shard_size,
             object_storages,
             shard_distribution,
-            volume_initialized: false,
             config: config.clone(),
         };
 
+        distributed_block.init(config.init_volume).unwrap();
         distributed_block
     }
 
@@ -104,14 +103,15 @@ impl DistributedBlock {
 }
 
 impl BlockStorage for DistributedBlock {
-    fn init(&mut self) {
+    fn init(&mut self, init_volume: bool) -> Result<(), Box<dyn std::error::Error>> {
+        if init_volume {
+            self.init_volume()
+        } else {
+            self.check_volume()
+        }
     }
 
     fn init_volume(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        if self.volume_initialized {
-            return Err(Error::new(ErrorKind::Other, format!("Volume is already initialized.")).into());
-        }
-        
         // Initialize volume
         let volume_size = self.config.export_size.unwrap() as u64;
         log::info!("Volume size: {}", volume_size);
@@ -147,16 +147,10 @@ impl BlockStorage for DistributedBlock {
             log::info!("Volume size written to: node-{}", i);
         }
 
-        self.volume_initialized = true;
-        self.init();
         Ok(())
     }
     
-    fn init_volume_from_remote(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        if self.volume_initialized {
-            return Err(Error::new(ErrorKind::Other, format!("Volume is already initialized.")).into());
-        }
-        
+    fn check_volume(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         if self.config.export_name.is_some() && self.config.export_size.is_none() {
             let mut volume_size: u64 = 0;
             let mut first_node = true;
@@ -179,8 +173,6 @@ impl BlockStorage for DistributedBlock {
 
             log::info!("Volume sizes are same for all nodes: {}", volume_size);
             self.volume_size = volume_size;
-            self.volume_initialized = true;
-            self.init();
             Ok(())
         } else {
             return Err(Error::new(ErrorKind::Other, format!("init_volume_from_remote() is failed.")).into());
@@ -193,7 +185,6 @@ impl BlockStorage for DistributedBlock {
         for storage in &self.object_storages {
             storage.destroy();
         }
-        self.volume_initialized = false;
     }
     
     fn get_name(&self) -> String {

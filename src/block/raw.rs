@@ -18,7 +18,6 @@ pub struct RawBlock {
     name: String,
     volume_size: u64,
     object_storage: Box<dyn ObjectStorage>,
-    volume_initialized: bool,
     config: BlockStorageConfig,
 }
 
@@ -32,31 +31,32 @@ impl RawBlock {
             panic!("Object storage should support random write access for RawBlock.");
         }
 
-        let selfref = RawBlock {
+        let mut selfref = RawBlock {
             export_name: config.export_name.clone(),
             name: String::from(filename),
             volume_size: 0_u64,
             object_storage,
-            volume_initialized: false,
             config: config.clone(),
         };
 
+        selfref.init(config.init_volume).unwrap();
         selfref
     }
 }
 
 impl BlockStorage for RawBlock {
-    fn init(&mut self) {
-        assert!(self.volume_initialized, "Should initialize the volume first");
-        self.object_storage.start_operations_on_object(self.name.clone()).unwrap();
+    fn init(&mut self, init_volume: bool) -> Result<(), Box<dyn std::error::Error>> {
+        if init_volume {
+            self.init_volume()?;
+        } else {
+            self.check_volume()?;
+        }
+
+        self.object_storage.start_operations_on_object(self.name.clone())?;
+        Ok(())
     }
 
     fn init_volume(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        if self.volume_initialized {
-            return Err(Error::new(ErrorKind::Other, format!("Volume is already initialized.")).into());
-        }
-
-
         let path = Path::new(self.name.as_str());
         /* Check file is already exist */
         if path.is_file() {
@@ -87,22 +87,14 @@ impl BlockStorage for RawBlock {
         log::info!("Volume size is written.");
         
         self.volume_size = volume_size;
-        self.volume_initialized = true;
-        self.init();
         Ok(())
     }
     
-    fn init_volume_from_remote(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        if self.volume_initialized {
-            return Err(Error::new(ErrorKind::Other, format!("Volume is already initialized.")).into());
-        }
-        
+    fn check_volume(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         if self.config.export_name.is_some() && self.config.export_size.is_none() {
             let volume_size = std::fs::metadata(self.name.clone())?.len();
             log::info!("Volume size of the block stoage is {}", volume_size);
             self.volume_size = volume_size;
-            self.volume_initialized = true;
-            self.init();
             Ok(())
         } else {
             return Err(Error::new(ErrorKind::Other, format!("init_volume_from_remote() is failed.")).into());
@@ -111,7 +103,6 @@ impl BlockStorage for RawBlock {
     
     fn destroy_volume(&mut self) {
         self.object_storage.destroy();
-        self.volume_initialized = false;
     }
 
     fn get_name(&self) -> String {

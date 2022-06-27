@@ -18,7 +18,6 @@ pub struct ShardedBlock {
     volume_size: u64,
     shard_size: u64,
     object_storage: Box<dyn ObjectStorage>,
-    volume_initialized: bool,
     config: BlockStorageConfig,
 }
 
@@ -29,15 +28,15 @@ impl ShardedBlock {
         // TODO: Allow configuring shard size in config string
         let default_shard_size: u64 = 4 * 1024 * 1024;
         let conn_str = config.conn_str.clone();
-        let sharded_file = ShardedBlock {
+        let mut sharded_file = ShardedBlock {
             name: config.export_name.clone(),
             volume_size: 0_u64,
             shard_size: default_shard_size,
             object_storage: object_storage_with_config(conn_str).unwrap(),
-            volume_initialized: false,
             config: config.clone(),
         };
 
+        sharded_file.init(config.init_volume).unwrap();
         sharded_file
     }
 
@@ -64,14 +63,15 @@ impl ShardedBlock {
 }
 
 impl BlockStorage for ShardedBlock {
-    fn init(&mut self) {
+    fn init(&mut self, init_volume: bool) -> Result<(), Box<dyn std::error::Error>> {
+        if init_volume {
+            self.init_volume()
+        } else {
+            self.check_volume()
+        }
     }
 
     fn init_volume(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        if self.volume_initialized {
-            return Err(Error::new(ErrorKind::Other, format!("Volume is already initialized.")).into());
-        }
-        
         // Initialize volume
         let volume_size = self.config.export_size.unwrap() as u64;
         log::info!("Volume size: {}", volume_size);
@@ -99,23 +99,15 @@ impl BlockStorage for ShardedBlock {
         log::info!("Initializing volume with size: {}", volume_size);
         log::info!("Volume size is written.");
         
-        self.volume_initialized = true;
-        self.init();
         Ok(())
     }
     
-    fn init_volume_from_remote(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        if self.volume_initialized {
-            return Err(Error::new(ErrorKind::Other, format!("Volume is already initialized.")).into());
-        }
-        
+    fn check_volume(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         if self.config.export_name.is_some() && self.config.export_size.is_none() {
             let size = String::from_utf8(self.object_storage.read("size".to_string()).unwrap()).unwrap();
             let size: u64 = size.parse().unwrap();
             log::info!("Volume size of the block stoage is {}", size);
             self.volume_size = size;
-            self.volume_initialized = true;
-            self.init();
             Ok(())
         } else {
             return Err(Error::new(ErrorKind::Other, format!("init_volume_from_remote() is failed.")).into());
@@ -124,7 +116,6 @@ impl BlockStorage for ShardedBlock {
     
     fn destroy_volume(&mut self) {
         self.object_storage.destroy();
-        self.volume_initialized = false;
     }
 
     fn get_name(&self) -> String {
