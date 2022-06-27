@@ -74,15 +74,12 @@ impl BlockStorage for RawBlock {
             }
         }
 
-        
-
         let mut file = File::create(self.name.clone())?;
         let volume_size = self.config.export_size.unwrap() as u64;
         log::info!("Initializing volume: {} with size: {}", self.name, volume_size);
 
         file.seek(SeekFrom::Start(volume_size - 1))?;
         file.write_all(&[0_u8])?;
-
         
         log::info!("Volume size is written.");
         
@@ -97,7 +94,7 @@ impl BlockStorage for RawBlock {
             self.volume_size = volume_size;
             Ok(())
         } else {
-            return Err(Error::new(ErrorKind::Other, format!("init_volume_from_remote() is failed.")).into());
+            return Err(Error::new(ErrorKind::Other, format!("check_volume() is failed.")).into());
         }
     }
     

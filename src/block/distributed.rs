@@ -175,7 +175,7 @@ impl BlockStorage for DistributedBlock {
             self.volume_size = volume_size;
             Ok(())
         } else {
-            return Err(Error::new(ErrorKind::Other, format!("init_volume_from_remote() is failed.")).into());
+            return Err(Error::new(ErrorKind::Other, format!("check_volume() is failed.")).into());
         }
     }
 
