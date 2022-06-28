@@ -96,6 +96,7 @@ impl BlockStorage for ShardedBlock {
             
         let size_str = volume_size.to_string();
         self.object_storage.write(String::from("size"), &size_str.as_bytes());
+        self.object_storage.persist_object(String::from("size"));
         log::info!("Initializing volume with size: {}", volume_size);
         log::info!("Volume size is written.");
         
