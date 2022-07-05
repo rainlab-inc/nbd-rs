@@ -39,7 +39,5 @@ pub fn destroy_export(driver_str: &str, driver_cfg_str: &str) -> Result<(), Box<
 
     let mut block_storage = block_storage_with_config(config)?;
     block_storage.destroy_volume();
-
     Ok(())
-
 }

@@ -175,8 +175,6 @@ impl BlockStorage for DistributedBlock {
         Ok(())
     }
 
-
-
     fn destroy_volume(&mut self) {
         for storage in &self.object_storages {
             storage.destroy();

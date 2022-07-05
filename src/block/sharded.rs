@@ -350,7 +350,6 @@ mod sharded_tests {
             init_volume: false,
         };
 
-
         let sharded_block = ShardedBlock::new(config);
         assert!(sharded_block.size_of_volume() == size as u64);
         sharded_block

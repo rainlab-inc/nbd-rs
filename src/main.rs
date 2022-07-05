@@ -14,7 +14,6 @@ mod nbd;
 mod core;
 use crate::core::*;
 
-
 fn main() {
     env_logger::init();
     log::trace!("Parsing arguments");
@@ -79,4 +78,3 @@ fn main() {
         _=> Ok(()),
     }.unwrap();
 }
-
