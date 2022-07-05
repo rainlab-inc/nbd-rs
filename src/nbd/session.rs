@@ -276,15 +276,20 @@ impl NBDSession {
             }
             proto::NBD_CMD_FLUSH => { // 3
                 log::debug!("NBD_CMD_FLUSH");
-                let selected_export = self.selected_export.borrow_mut();
-                let mut write_lock = selected_export.as_ref().unwrap().try_write().unwrap();
-                {
-                    let mut driver = Arc::get_mut(&mut write_lock.driver).unwrap().try_write().unwrap();
-                    let driver_name = driver.get_name();
-                    let volume_size = driver.get_volume_size() as usize;
-                    match driver.flush(0, volume_size) {
-                        Ok(_) => log::trace!("flushed"),
-                        Err(e) => log::error!("{}", e) // TODO: Reflect error to client
+                log::trace!("\t-->flags:{}, handle: {}, offset: {}, datalen: {}", flags, handle, offset, datalen);
+                if datalen == 0 {
+                    log::warn!("Flush length is zero. Ignoring flush");
+                } else {
+                    let selected_export = self.selected_export.borrow_mut();
+                    let mut write_lock = selected_export.as_ref().unwrap().try_write().unwrap();
+                    {
+                        let mut driver = Arc::get_mut(&mut write_lock.driver).unwrap().try_write().unwrap();
+                        let driver_name = driver.get_name();
+                        let volume_size = driver.get_volume_size() as usize;
+                        match driver.flush(0, volume_size) {
+                            Ok(_) => log::trace!("flushed"),
+                            Err(e) => log::error!("{}", e) // TODO: Reflect error to client
+                        }
                     }
                 }
                 if self.structured_reply.get() == true {
