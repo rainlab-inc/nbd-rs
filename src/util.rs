@@ -5,6 +5,7 @@
 #![allow(dead_code)]
 use std::io::{Read, Write, Error};
 use std::net::TcpStream;
+use regex::Regex;
 
 #[repr(u8)]
 #[derive(Copy, Clone, Debug)]
@@ -142,6 +143,34 @@ impl Iterator for AlignedBlockIter {
         self.from = self.from + len;
         Some(range)
     }
+}
+
+pub fn human_size_to_usize(size_str: &str) -> Result<usize, Box<dyn std::error::Error>> {
+    let kb = 1000;
+    let k = 1024;
+    let mb = usize::pow(kb, 2);
+    let m = usize::pow(k, 2);
+    let gb = usize::pow(kb, 3);
+    let g = usize::pow(k, 3);
+
+    let re = Regex::new(r"(\d*)(kB|KB|k|K|MB|M|GB|G)\b")?;
+    for cap in re.captures(size_str) {
+        let size: usize = cap[1].parse()?;
+        let multipler = match &cap[2] {
+            "kB" => kb,
+            "KB" => kb,
+            "k" => k,
+            "K" => k,
+            "MB" => mb,
+            "M" =>  m,
+            "GB" => gb,
+            "G" =>  g,
+            _  => return Err("unreachable".into()),
+        };
+
+        return Ok(size * multipler)
+    }
+    return Err("unreachable".into());
 }
 
 #[cfg(test)]
