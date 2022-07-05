@@ -147,24 +147,27 @@ impl Iterator for AlignedBlockIter {
 
 pub fn human_size_to_usize(size_str: &str) -> Result<usize, Box<dyn std::error::Error>> {
     let kb = 1000;
-    let k = 1024;
+    let kib = 1024;
     let mb = usize::pow(kb, 2);
-    let m = usize::pow(k, 2);
+    let mib = usize::pow(kib, 2);
     let gb = usize::pow(kb, 3);
-    let g = usize::pow(k, 3);
+    let gib = usize::pow(kib, 3);
 
-    let re = Regex::new(r"(\d*)(kB|KB|k|K|MB|M|GB|G)\b")?;
+    let re = Regex::new(r"(\d*)(kB|KB|k|K|MB|M|Mi|GB|G|Gi)\b")?;
     for cap in re.captures(size_str) {
         let size: usize = cap[1].parse()?;
         let multipler = match &cap[2] {
             "kB" => kb,
             "KB" => kb,
-            "k" => k,
-            "K" => k,
+            "k"  => kb,
+            "K"  => kb,
+            "Ki" => kib,
             "MB" => mb,
-            "M" =>  m,
+            "M"  => mb,
+            "Mi" => mib,
             "GB" => gb,
-            "G" =>  g,
+            "G"  => gb,
+            "Gi" => gib,
             _  => return Err("unreachable".into()),
         };
 
