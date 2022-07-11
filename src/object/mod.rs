@@ -22,6 +22,7 @@ pub trait SimpleObjectStorage {
 
     // simplest interface
     fn create_object(&self, object_name: String, len: u64) -> Result<(), Error>;
+    fn delete_object(&self, object_name: String) -> Result<(), Error>;
     fn exists   (&self, object_name: String) -> Result<bool, Error>;
     fn get_size (&self, object_name: String) -> Result<u64, Error>;
     fn get_object_list(&self) -> Result<Vec<ObjectMeta>, Error>;

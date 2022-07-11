@@ -108,6 +108,11 @@ impl SimpleObjectStorage for FileBackend {
         file.write_all(&[0_u8])?;
         Ok(())
     }
+    
+    fn delete_object(&self, object_name: String) -> Result<(), Error> {
+        let path = self.obj_path(object_name.clone()); 
+        std::fs::remove_file(path)
+    }
 
     fn exists(&self, object_name: String) -> Result<bool, Error> {
         let path = self.obj_path(object_name.clone());
