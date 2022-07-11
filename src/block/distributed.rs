@@ -177,7 +177,7 @@ impl BlockStorage for DistributedBlock {
 
     fn destroy_volume(&mut self) {
         for storage in &self.object_storages {
-            storage.destroy();
+            storage.purge_prefix("".to_string()).unwrap();
         }
         log::info!("The volume is destroyed.");
     }

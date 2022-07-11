@@ -112,7 +112,7 @@ impl BlockStorage for ShardedBlock {
     }
 
     fn destroy_volume(&mut self) {
-        self.object_storage.destroy();
+        self.object_storage.purge_prefix("".to_string()).unwrap();
         log::info!("The volume is destroyed.");
     }
 

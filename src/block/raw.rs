@@ -89,7 +89,7 @@ impl BlockStorage for RawBlock {
     }
     
     fn destroy_volume(&mut self) {
-        self.object_storage.delete_object(self.name.clone()).unwrap();
+        self.object_storage.delete(self.name.clone()).unwrap();
         log::info!("The volume({}) is destroyed.", self.path);
     }
 

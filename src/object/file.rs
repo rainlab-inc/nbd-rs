@@ -80,18 +80,14 @@ impl FileBackend {
                 let mut folder_vec =  self.get_files_inside_folder(file.path())?;
                 files.append(&mut folder_vec);
             } else {
-                let mut path = file.path().into_os_string().into_string().unwrap().split_once(self.folder_path.as_str()).unwrap().1.to_string();
-                // TODO: remove in a *smarter* way to remove / or \ 
-                path.remove(0);
+                let path = file.path().into_os_string().into_string().unwrap().split_once(self.folder_path.as_str()).unwrap().1.to_string();
                 let obj = ObjectMeta {
                     path, 
                     size: file.metadata()?.len(),
                 };
                 files.push(obj);
             }
-
         }
-
         Ok(files)
     }
 }
@@ -109,11 +105,6 @@ impl SimpleObjectStorage for FileBackend {
         Ok(())
     }
     
-    fn delete_object(&self, object_name: String) -> Result<(), Error> {
-        let path = self.obj_path(object_name.clone()); 
-        std::fs::remove_file(path)
-    }
-
     fn exists(&self, object_name: String) -> Result<bool, Error> {
         let path = self.obj_path(object_name.clone());
         return Ok(path.is_file() && path.exists())

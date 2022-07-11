@@ -239,10 +239,6 @@ impl SimpleObjectStorage for S3Backend {
         todo!("Not supported");
     }
     
-    fn delete_object(&self, object_name: String) -> Result<(), Error> {
-        self.client.delete_object(self.bucket.clone(), object_name)
-    }
-
     fn exists(&self, object_name: String) -> Result<bool, Error> {
         let object_name = format!("{}{}", self.prefix, object_name);
         let object_meta = self.client.get_object_meta(self.bucket.clone(), object_name.clone());
