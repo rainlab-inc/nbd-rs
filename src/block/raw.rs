@@ -1,7 +1,5 @@
 use std::{
-    io::{Error, ErrorKind, SeekFrom, Seek, Write},
-    fs::{File},
-    path::{Path},
+    io::{Error, ErrorKind},
 };
 use url::{Url};
 

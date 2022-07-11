@@ -1,5 +1,4 @@
 use std::io::{Error,ErrorKind};
-use log::log;
 
 use crate::object::ObjectStorage;
 use crate::object::FileBackend;

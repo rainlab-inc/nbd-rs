@@ -3,7 +3,7 @@
 
 #![macro_use]
 #![allow(dead_code)]
-use std::io::{Read, Write, Error};
+use std::io::{Read, Write};
 use std::net::TcpStream;
 use regex::Regex;
 

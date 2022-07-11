@@ -6,7 +6,7 @@ use std::{
 use log;
 
 use crate::{
-    object::{ObjectStorage, object_storage_with_config, object_storages_with_config},
+    object::{ObjectStorage, object_storages_with_config},
     block::{BlockStorage, BlockStorageConfig, ShardDistribution},
 };
 use crate::util::Propagation;

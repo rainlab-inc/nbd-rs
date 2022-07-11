@@ -1,10 +1,9 @@
 #![allow(unused_variables)]
-#![allow(unused_imports)]
 #![allow(unused_must_use)]
 #![allow(dead_code)]
 
-use crate::nbd::{NBDExport, NBDServer};
-use clap::{Arg, arg, command, Command, crate_authors, crate_version};
+use crate::nbd::NBDExport;
+use clap::{Arg, arg, command, Command};
 use std::sync::{Arc, RwLock};
 
 mod object;
