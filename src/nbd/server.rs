@@ -4,13 +4,12 @@ use std::{
     io::{Write, BufWriter},
     net::{SocketAddr, TcpListener, TcpStream},
     sync::{Arc, RwLock},
-    collections::{HashMap},
     rc::Rc,
     cell::RefCell,
 };
 
 use crate::{
-    block::{BlockStorage, block_storage_with_config},
+    block::{BlockStorage, BlockStorageConfig, block_storage_with_config},
     nbd::{proto, NBDSession},
     util,
 };
@@ -28,8 +27,9 @@ pub struct NBDServer {
 
 pub struct NBDExport {
     pub name: String,
+    size: usize,
     driver_type: String,
-    config: String,
+    driver_config: String,
     pub driver: Arc<RwLock<Box<dyn BlockStorage>>>,
     pub in_use: bool
 }
@@ -40,16 +40,25 @@ impl NBDExport {
         if !["raw", "sharded", "distributed"].contains(&driver_type.as_str()) {
             panic!("Driver must be one of the values `raw` or `sharded`. Found '{}'", driver_type);
         }
-        let driver = block_storage_with_config(
-            name.clone(),
-            driver_type.clone(),
-            conn_str.clone()
-        ).unwrap();
+
+        let config = BlockStorageConfig {
+            export_name: Some(name.clone()),
+            export_size: None,
+            export_force: false,
+            driver: driver_type.clone(),
+            conn_str: conn_str.clone(),
+            init_volume: false,
+        };
+
+        let driver = block_storage_with_config(config).unwrap();
+        let size = driver.get_volume_size() as usize;
+
         log::info!("export {:?} -> {}({:?})", &name, &driver_type, &conn_str);
         NBDExport {
-            name: name,
-            driver_type: driver_type,
-            config: conn_str,
+            name: name.clone(),
+            size,
+            driver_type,
+            driver_config: conn_str,
             driver: Arc::new(RwLock::new(driver)),
             in_use: false
         }

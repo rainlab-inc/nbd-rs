@@ -1,50 +1,94 @@
 use std::{
-    io::{Error}
+    io::{Error, ErrorKind},
 };
 use url::{Url};
 
 use crate::{
     object::{ObjectStorage, object_storage_with_config},
-    block::{BlockStorage},
+    block::{BlockStorage, BlockStorageConfig},
 };
 use crate::util::Propagation;
 
 // Driver: RawBlock
 
 pub struct RawBlock {
-    export_name: String,
+    export_name: Option<String>,
     name: String,
+    path: String,
     volume_size: u64,
     object_storage: Box<dyn ObjectStorage>,
+    config: BlockStorageConfig,
 }
 
 impl RawBlock {
-    pub fn new(name: String, config: String) -> RawBlock {
-        let mut split: Vec<&str> = config.split(":").collect();
-        let driver_name = split.remove(0);
-        let driver_config = split.join(":");
-
-        let segments = Url::from_file_path(&driver_config).unwrap();
+    pub fn new(config: BlockStorageConfig) -> RawBlock {
+        let segments = Url::parse(&config.conn_str).unwrap();
         let filename = segments.path_segments().unwrap().last().unwrap();
         let new_config = segments.as_str().strip_suffix(filename).unwrap();
 
+        let object_storage = object_storage_with_config(String::from(new_config)).unwrap();
+        if !object_storage.supports_random_write_access() {
+            panic!("Object storage should support random write access for RawBlock.");
+        }
+
         let mut selfref = RawBlock {
-            export_name: name.clone(),
+            export_name: config.export_name.clone(),
             name: String::from(filename),
+            path: String::from(segments.path()),
             volume_size: 0_u64,
-            object_storage: object_storage_with_config(String::from(new_config)).unwrap(),
+            object_storage,
+            config: config.clone(),
         };
-        selfref.init();
+
+        selfref.init(config.init_volume).unwrap();
         selfref
     }
 }
 
 impl BlockStorage for RawBlock {
-    fn init(&mut self) {
-        self.object_storage
-            .start_operations_on_object(self.name.clone()).unwrap();
+    fn init(&mut self, init_volume: bool) -> Result<(), Box<dyn std::error::Error>> {
+        if init_volume {
+            self.init_volume()?;
+        } else {
+            self.check_volume()?;
+        }
 
-        self.volume_size = self.object_storage.get_size(self.name.clone()).unwrap_or(0);
+        self.object_storage.start_operations_on_object(self.name.clone())?;
+        Ok(())
+    }
+
+    fn init_volume(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        if self.object_storage.exists(self.name.clone())? {
+            let size = self.object_storage.get_size(self.name.clone())?;
+            if size == self.config.export_size.unwrap() as u64 {
+                log::warn!("Block storage is already initialized with the same size: {}", size);
+            } else {
+                if !self.config.export_force {
+                    return Err(Error::new(ErrorKind::Other, format!("Block storage is already initialized and the size is configured to be {}, add --force to override current configuration", size )).into());
+                } else {
+                    log::warn!("Block storage is already initialized with size: {}", size);
+                }
+            }
+        }
+
+        let volume_size = self.config.export_size.unwrap() as u64;
+        self.object_storage.create_object(self.name.clone(), volume_size);
+        log::info!("Volume size is written.");
+        
+        self.volume_size = volume_size;
+        Ok(())
+    }
+    
+    fn check_volume(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        let volume_size = self.object_storage.get_size(self.name.clone())?;
+        log::info!("Volume size of the block storage is {}", volume_size);
+        self.volume_size = volume_size;
+        Ok(())
+    }
+    
+    fn destroy_volume(&mut self) {
+        self.object_storage.delete(self.name.clone()).unwrap();
+        log::info!("The volume({}) is destroyed.", self.path);
     }
 
     fn get_name(&self) -> String {

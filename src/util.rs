@@ -3,8 +3,9 @@
 
 #![macro_use]
 #![allow(dead_code)]
-use std::io::{Read, Write, Error};
+use std::io::{Read, Write};
 use std::net::TcpStream;
+use regex::Regex;
 
 #[repr(u8)]
 #[derive(Copy, Clone, Debug)]
@@ -144,12 +145,45 @@ impl Iterator for AlignedBlockIter {
     }
 }
 
+pub fn human_size_to_usize(size_str: &str) -> Result<usize, Box<dyn std::error::Error>> {
+    let kb = 1000;
+    let kib = 1024;
+    let mb = usize::pow(kb, 2);
+    let mib = usize::pow(kib, 2);
+    let gb = usize::pow(kb, 3);
+    let gib = usize::pow(kib, 3);
+
+    let re = Regex::new(r"(\d*)(kB|KB|k|K|MB|M|Mi|GB|G|Gi)\b")?;
+    for cap in re.captures(size_str) {
+        let size: usize = cap[1].parse()?;
+        let multipler = match &cap[2] {
+            "kB" => kb,
+            "KB" => kb,
+            "k"  => kb,
+            "K"  => kb,
+            "Ki" => kib,
+            "MB" => mb,
+            "M"  => mb,
+            "Mi" => mib,
+            "GB" => gb,
+            "G"  => gb,
+            "Gi" => gib,
+            _  => return Err("unreachable".into()),
+        };
+
+        return Ok(size * multipler)
+    }
+    return Err("unreachable".into());
+}
+
+#[allow(unused_imports)]
 #[cfg(test)]
 pub mod test_utils {
     use super::*;
     use std::{
-        fs::{remove_dir_all},
-        ffi::{CString},
+        io::Error,
+        fs::remove_dir_all,
+        ffi::CString,
     };
     extern crate libc;
 
@@ -170,7 +204,7 @@ pub mod test_utils {
                 }
             }
             let path = unsafe { CString::from_raw(ptr) }.into_string().unwrap();
-            TempFolder { path: path }
+            TempFolder { path }
         }
     }
 

@@ -234,7 +234,11 @@ impl SimpleObjectStorage for S3Backend {
     fn init(&mut self, conn_str: String) {
         // .. noop
     }
-
+    
+    fn create_object(&self, object_name: String, len: u64) -> Result<(), Error> {
+        todo!("Not supported");
+    }
+    
     fn exists(&self, object_name: String) -> Result<bool, Error> {
         let object_name = format!("{}{}", self.prefix, object_name);
         let object_meta = self.client.get_object_meta(self.bucket.clone(), object_name.clone());

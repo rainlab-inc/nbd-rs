@@ -4,6 +4,7 @@ use std::{
 
 mod config;
 pub use self::config::block_storage_with_config;
+pub use self::config::BlockStorageConfig;
 
 mod raw;
 pub use self::raw::RawBlock;
@@ -20,7 +21,10 @@ mod shard_distribution;
 pub use self::shard_distribution::ShardDistribution;
 
 pub trait BlockStorage {
-    fn init(&mut self);
+    fn init(&mut self, init_volume: bool) -> Result<(), Box<dyn std::error::Error>>;
+    fn init_volume(&mut self) -> Result<(), Box<dyn std::error::Error>>;
+    fn check_volume(&mut self) -> Result<(), Box<dyn std::error::Error>>;
+    fn destroy_volume(&mut self);
     fn get_name(&self) -> String;
     fn get_volume_size(&self) -> u64;
     fn supports_trim(&self) -> bool {

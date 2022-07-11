@@ -80,15 +80,14 @@ impl FileBackend {
                 let mut folder_vec =  self.get_files_inside_folder(file.path())?;
                 files.append(&mut folder_vec);
             } else {
+                let path = file.path().into_os_string().into_string().unwrap().split_once(self.folder_path.as_str()).unwrap().1.to_string();
                 let obj = ObjectMeta {
-                    path: file.path().into_os_string().into_string().unwrap().split_once(self.folder_path.as_str()).unwrap().1.to_string(),
+                    path, 
                     size: file.metadata()?.len(),
                 };
                 files.push(obj);
             }
-
         }
-
         Ok(files)
     }
 }
@@ -97,7 +96,15 @@ impl SimpleObjectStorage for FileBackend {
     fn init(&mut self, conn_str: String) {
         self.folder_path = conn_str.clone()
     }
-
+    
+    fn create_object(&self, object_name: String, len: u64) -> Result<(), Error> {
+        let path = self.obj_path(object_name.clone());
+        let mut file = File::create(path)?;
+        file.seek(SeekFrom::Start(len - 1))?;
+        file.write_all(&[0_u8])?;
+        Ok(())
+    }
+    
     fn exists(&self, object_name: String) -> Result<bool, Error> {
         let path = self.obj_path(object_name.clone());
         return Ok(path.is_file() && path.exists())

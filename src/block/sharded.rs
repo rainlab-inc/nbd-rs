@@ -1,38 +1,42 @@
 use std::{
     str,
-    io::{Error},
+    io::{Error, ErrorKind},
 };
 
 use log;
 
 use crate::{
     object::{ObjectStorage, object_storage_with_config},
-    block::{BlockStorage},
+    block::{BlockStorage, BlockStorageConfig},
 };
 use crate::util::Propagation;
 
 // Driver: ShardedBlock
 
 pub struct ShardedBlock {
-    name: String,
+    name: Option<String>,
     volume_size: u64,
     shard_size: u64,
     object_storage: Box<dyn ObjectStorage>,
+    config: BlockStorageConfig,
 }
 
 impl ShardedBlock {
-    pub fn new(name: String, config: String) -> ShardedBlock {
+    pub fn new(config: BlockStorageConfig) -> ShardedBlock {
         // TODO: Allow configuring disk size in config string
         //       or a setting like `create=true`
         // TODO: Allow configuring shard size in config string
         let default_shard_size: u64 = 4 * 1024 * 1024;
+        let conn_str = config.conn_str.clone();
         let mut sharded_file = ShardedBlock {
-            name: name.clone(),
+            name: config.export_name.clone(),
             volume_size: 0_u64,
             shard_size: default_shard_size,
-            object_storage: object_storage_with_config(config).unwrap(),
+            object_storage: object_storage_with_config(conn_str).unwrap(),
+            config: config.clone(),
         };
-        sharded_file.init();
+
+        sharded_file.init(config.init_volume).unwrap();
         sharded_file
     }
 
@@ -59,12 +63,61 @@ impl ShardedBlock {
 }
 
 impl BlockStorage for ShardedBlock {
-    fn init(&mut self) {
-        self.volume_size = self.size_of_volume();
+    fn init(&mut self, init_volume: bool) -> Result<(), Box<dyn std::error::Error>> {
+        if init_volume {
+            self.init_volume()
+        } else {
+            self.check_volume()
+        }
+    }
+
+    fn init_volume(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        // Initialize volume
+        let volume_size = self.config.export_size.unwrap() as u64;
+        log::info!("Volume size: {}", volume_size);
+        self.volume_size = volume_size;
+            
+        /* Check initialized */
+        let size = self.object_storage.read("size".to_string());
+        if size.is_ok() {
+            /* Already initialized */
+            let size = String::from_utf8(self.object_storage.read("size".to_string()).unwrap()).unwrap();
+            let size: u64 = size.parse().unwrap();
+            if size == volume_size {
+                log::warn!("Block storage is already initialized with the same size: {}", size);
+            } else {
+                if !self.config.export_force {
+                    return Err(Error::new(ErrorKind::Other, format!("Block storage is already initialized and the size is configured to be {}, add --force to override current configuration", size )).into());
+                } else {
+                    log::warn!("Block storage is already initialized with size: {}", size);
+                }
+            }
+        }
+            
+        let size_str = volume_size.to_string();
+        self.object_storage.write(String::from("size"), &size_str.as_bytes());
+        self.object_storage.persist_object(String::from("size"));
+        log::info!("Initializing volume with size: {}", volume_size);
+        log::info!("Volume size is written.");
+        
+        Ok(())
+    }
+    
+    fn check_volume(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        let size = String::from_utf8(self.object_storage.read("size".to_string()).unwrap()).unwrap();
+        let size: u64 = size.parse().unwrap();
+        log::info!("Volume size of the block storage is {}", size);
+        self.volume_size = size;
+        Ok(())
+    }
+
+    fn destroy_volume(&mut self) {
+        self.object_storage.purge_prefix("".to_string()).unwrap();
+        log::info!("The volume is destroyed.");
     }
 
     fn get_name(&self) -> String {
-        self.name.clone()
+        self.name.clone().unwrap()
     }
 
     fn get_volume_size(&self) -> u64 {
@@ -287,10 +340,17 @@ mod sharded_tests {
                             .open(Path::new(&path).join("size"))
                             .unwrap();
         size_file.write(format!("{}", size).as_bytes());
-        let sharded_block = ShardedBlock::new(
-            String::from("test"),
-            format!("file:///{}", path)
-        );
+        
+        let config = BlockStorageConfig{
+            export_name: Some("test".to_string()),
+            export_size: Some(size),
+            export_force: false,
+            driver: "sharded".to_string(),
+            conn_str: format!("file:///{}", path),
+            init_volume: false,
+        };
+
+        let sharded_block = ShardedBlock::new(config);
         assert!(sharded_block.size_of_volume() == size as u64);
         sharded_block
     }

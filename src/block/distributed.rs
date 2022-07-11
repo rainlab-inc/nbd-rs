@@ -1,24 +1,25 @@
 use std::{
     str,
-    io::{Error},
+    io::{Error, ErrorKind},
 };
 
 use log;
 
 use crate::{
-    object::{ObjectStorage, object_storage_with_config, object_storages_with_config},
-    block::{BlockStorage, ShardDistribution},
+    object::{ObjectStorage, object_storages_with_config},
+    block::{BlockStorage, BlockStorageConfig, ShardDistribution},
 };
 use crate::util::Propagation;
 
 // Driver: DistributedBlock
 
 pub struct DistributedBlock{
-    name: String,
+    name: Option<String>,
     volume_size: u64,
     shard_size: u64,
     object_storages: Vec<Box<dyn ObjectStorage>>,
     shard_distribution: ShardDistribution,
+    config: BlockStorageConfig,
 }
 
 fn get_cfg_entry(split: &Vec<&str>, entry: &str) -> Option<String> {
@@ -33,27 +34,30 @@ fn get_cfg_entry(split: &Vec<&str>, entry: &str) -> Option<String> {
 }
 
 impl DistributedBlock {
-    pub fn new(name: String, config: String) -> DistributedBlock{
-        // TODO: Allow configuring disk size in config string
+    pub fn new(config: BlockStorageConfig) -> DistributedBlock {
+             // TODO: Allow configuring disk size in config string
         //       or a setting like `create=true`
         // TODO: Allow configuring shard size in config string
         let default_shard_size: u64 = 4 * 1024 * 1024;
 
-        let split = config.split(";").collect();
-        let replicas:u8 = get_cfg_entry(&split, "replicas").unwrap().parse().unwrap();
+        let conn_str = config.conn_str.clone();
+        let split = conn_str.split(";").collect();
+        let replicas: u8 = get_cfg_entry(&split, "replicas").unwrap().parse().unwrap();
         let backends = get_cfg_entry(&split, "backends").unwrap();
 
         let object_storages = object_storages_with_config(backends).unwrap();
         let shard_distribution = ShardDistribution::new(object_storages.len() as u8, replicas);
+
         let mut distributed_block = DistributedBlock {
-            name: name.clone(),
-            volume_size: 0_u64,
+            name: config.export_name.clone(),
+            volume_size: 0,
             shard_size: default_shard_size,
-            //object_storage: object_storage_with_config(config.clone()).unwrap(),
-            object_storages: object_storages,
-            shard_distribution: shard_distribution,
+            object_storages,
+            shard_distribution,
+            config: config.clone(),
         };
-        distributed_block.init();
+
+        distributed_block.init(config.init_volume).unwrap();
         distributed_block
     }
 
@@ -95,15 +99,91 @@ impl DistributedBlock {
         }
         Ok(None)
     }
+
 }
 
 impl BlockStorage for DistributedBlock {
-    fn init(&mut self) {
-        self.volume_size = self.size_of_volume();
+    fn init(&mut self, init_volume: bool) -> Result<(), Box<dyn std::error::Error>> {
+        if init_volume {
+            self.init_volume()
+        } else {
+            self.check_volume()
+        }
     }
 
+    fn init_volume(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        // Initialize volume
+        let volume_size = self.config.export_size.unwrap() as u64;
+        log::info!("Volume size: {}", volume_size);
+        self.volume_size = volume_size;
+            
+        /* Check initialized */
+        for (i, storage) in self.object_storages.iter().enumerate() {
+            let size = storage.read("size".to_string());
+            if size.is_err() {
+                continue;
+            } else {
+                let size = String::from_utf8(storage.read("size".to_string()).unwrap()).unwrap();
+                let size: u64 = size.parse().unwrap();
+                if size == volume_size {
+                    log::warn!("Node {} is already initialized with the same size: {}", i, size);
+                } else {
+                    if !self.config.export_force {
+                        log::error!("Node {} is already initialized and the size is configured to be {}, add --force to override current configuration", i, size);
+                        panic!();
+                    } else {
+                        log::warn!("Node {} is already initialized with size: {}", i, size);
+                    }
+                }
+            }
+        }
+        
+        log::info!("Initializing volume with size: {}", volume_size);
+
+        for (i, storage) in self.object_storages.iter().enumerate() {
+            let size_str = volume_size.to_string();
+            storage.write(String::from("size"), &size_str.as_bytes());
+            storage.persist_object(String::from("size"));
+            log::info!("Volume size written to: node-{}", i);
+        }
+
+        Ok(())
+    }
+    
+    fn check_volume(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        let mut volume_size: u64 = 0;
+        let mut first_node = true;
+
+        for (i, storage) in self.object_storages.iter().enumerate() {
+            let size = String::from_utf8(storage.read("size".to_string()).unwrap()).unwrap();
+            let tmp_volume_size = size.parse().unwrap();
+            log::info!("Volume size in the node-{} is {}", i, tmp_volume_size);
+
+            if first_node {
+                volume_size = tmp_volume_size;
+                first_node = false;
+                continue;
+            }
+
+            if tmp_volume_size != volume_size {
+                return Err(Error::new(ErrorKind::Other, format!("Volume sizes should be same for each node.")).into());
+            }
+        }
+
+        log::info!("Volume sizes are same for all nodes: {}", volume_size);
+        self.volume_size = volume_size;
+        Ok(())
+    }
+
+    fn destroy_volume(&mut self) {
+        for storage in &self.object_storages {
+            storage.purge_prefix("".to_string()).unwrap();
+        }
+        log::info!("The volume is destroyed.");
+    }
+    
     fn get_name(&self) -> String {
-        self.name.clone()
+        self.name.clone().unwrap()
     }
 
     fn get_volume_size(&self) -> u64 {
