@@ -176,12 +176,14 @@ pub fn human_size_to_usize(size_str: &str) -> Result<usize, Box<dyn std::error::
     return Err("unreachable".into());
 }
 
+#[allow(unused_imports)]
 #[cfg(test)]
 pub mod test_utils {
     use super::*;
     use std::{
-        fs::{remove_dir_all},
-        ffi::{CString},
+        io::Error,
+        fs::remove_dir_all,
+        ffi::CString,
     };
     extern crate libc;
 
@@ -202,7 +204,7 @@ pub mod test_utils {
                 }
             }
             let path = unsafe { CString::from_raw(ptr) }.into_string().unwrap();
-            TempFolder { path: path }
+            TempFolder { path }
         }
     }
 
