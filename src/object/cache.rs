@@ -303,6 +303,10 @@ impl SimpleObjectStorage for CacheBackend {
         log::info!("init");
     }
 
+    fn create_object(&self, object_name: String, len: u64) -> Result<(), Error> {
+        self.write_backend.lock().unwrap().create_object(object_name, len)
+    }
+
     fn exists(&self, object_name: String) -> Result<bool, Error> {
         let cache = self.cache.read().unwrap();
         if cache.contains_key(&object_name.clone()) {

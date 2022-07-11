@@ -60,12 +60,8 @@ impl BlockStorage for RawBlock {
     }
 
     fn init_volume(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        let path = Path::new(self.path.as_str());
-        /* Check file is already exist */
-        if path.is_file() {
-            let file = File::open(path)?;
-            let size = file.metadata()?.len();
-
+        if self.object_storage.exists(self.name.clone())? {
+            let size = self.object_storage.get_size(self.name.clone())?;
             if size == self.config.export_size.unwrap() as u64 {
                 log::warn!("Block storage is already initialized with the same size: {}", size);
             } else {
@@ -77,13 +73,8 @@ impl BlockStorage for RawBlock {
             }
         }
 
-        let mut file = File::create(self.path.as_str())?;
         let volume_size = self.config.export_size.unwrap() as u64;
-        log::info!("Initializing volume: {} with size: {}", self.name, volume_size);
-
-        file.seek(SeekFrom::Start(volume_size - 1))?;
-        file.write_all(&[0_u8])?;
-        
+        self.object_storage.create_object(self.name.clone(), volume_size);
         log::info!("Volume size is written.");
         
         self.volume_size = volume_size;

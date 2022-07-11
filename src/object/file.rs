@@ -100,6 +100,14 @@ impl SimpleObjectStorage for FileBackend {
     fn init(&mut self, conn_str: String) {
         self.folder_path = conn_str.clone()
     }
+    
+    fn create_object(&self, object_name: String, len: u64) -> Result<(), Error> {
+        let path = self.obj_path(object_name.clone());
+        let mut file = File::create(path)?;
+        file.seek(SeekFrom::Start(len - 1))?;
+        file.write_all(&[0_u8])?;
+        Ok(())
+    }
 
     fn exists(&self, object_name: String) -> Result<bool, Error> {
         let path = self.obj_path(object_name.clone());
