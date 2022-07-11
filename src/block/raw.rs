@@ -82,7 +82,7 @@ impl BlockStorage for RawBlock {
     }
     
     fn check_volume(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        let volume_size = std::fs::metadata(self.path.clone())?.len();
+        let volume_size = self.object_storage.get_size(self.name.clone())?;
         log::info!("Volume size of the block storage is {}", volume_size);
         self.volume_size = volume_size;
         Ok(())
