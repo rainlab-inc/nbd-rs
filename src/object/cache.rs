@@ -436,11 +436,6 @@ impl SimpleObjectStorage for CacheBackend {
         let read_backend = self.read_backend.lock().unwrap();
         read_backend.get_object_list_with_prefix(prefix)
     }
-    
-    fn destroy(&self) {
-        let write_backend = self.write_backend.lock().unwrap();
-        write_backend.destroy();
-    }
  
     fn start_operations_on_object(&self, object_name: String) -> Result<(), Error> {
         // increase

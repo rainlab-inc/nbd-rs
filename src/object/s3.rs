@@ -299,13 +299,6 @@ impl SimpleObjectStorage for S3Backend {
         Ok(object_list)
     }
 
-    fn destroy(&self) {
-        let list = self.client.get_object_list_with_prefix(self.bucket.clone(), self.prefix.clone()).unwrap();
-        for obj in list {
-            self.client.delete_object(self.bucket.clone(), obj.name).unwrap();
-        }
-    }
-
     fn start_operations_on_object(&self, object_name: String) -> Result<(), Error> {
         // Noop
         Ok(())

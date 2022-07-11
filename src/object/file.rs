@@ -239,13 +239,6 @@ impl SimpleObjectStorage for FileBackend {
         }
     }
 
-    fn destroy(&self) {
-        let list = self.get_object_list().unwrap();
-        for item in list {
-            self.delete(item.path);
-        }
-    }
-
     fn start_operations_on_object(&self, object_name: String) -> Result<(), Error> {
         self.get_file(object_name);
         //let mut open_files = self.open_files.write().unwrap();

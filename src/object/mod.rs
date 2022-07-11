@@ -26,7 +26,6 @@ pub trait SimpleObjectStorage {
     fn get_size (&self, object_name: String) -> Result<u64, Error>;
     fn get_object_list(&self) -> Result<Vec<ObjectMeta>, Error>;
     fn get_object_list_with_prefix(&self, prefix: String) -> Result<Vec<ObjectMeta>, Error>;
-    fn destroy(&self);
     fn purge_prefix(&self, prefix: String) -> Result<(), Error> {
         let list = self.get_object_list_with_prefix(prefix)?;
         for object in list {
