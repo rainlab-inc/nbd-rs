@@ -29,13 +29,22 @@ pub struct FileBackend {
 
 impl Default for FileBackend {
     fn default() -> FileBackend {
-        FileBackend::new(String::from(""))
+        FileBackend::new(String::from("./"))
     }
 }
 
 impl FileBackend {
     pub fn new(config: String) -> FileBackend {
         log::debug!("FileBackend.config: {:?}", &config);
+        let path = Path::new(config.as_str());
+        if !path.exists() {
+            log::error!("The path({}) does not exist.", config);
+            panic!();
+        }
+        if !path.is_dir() {
+            log::error!("The path({}) is not a dir.", config);
+            panic!();
+        }
         FileBackend {
             folder_path: config.clone(),
             open_files: RwLock::<HashMap<String, Arc<RwLock<MappedFile>>>>::new(
@@ -80,7 +89,10 @@ impl FileBackend {
                 let mut folder_vec =  self.get_files_inside_folder(file.path())?;
                 files.append(&mut folder_vec);
             } else {
-                let path = file.path().into_os_string().into_string().unwrap().split_once(self.folder_path.as_str()).unwrap().1.to_string();
+                let mut path = file.path().into_os_string().into_string().unwrap().split_once(self.folder_path.as_str()).unwrap().1.to_string();
+                if !self.folder_path.ends_with("/") {
+                    path.remove(0);
+                }
                 let obj = ObjectMeta {
                     path, 
                     size: file.metadata()?.len(),
@@ -414,7 +426,7 @@ mod tests {
         dummy_file.write(&[0_u8; 1024]);
         let mut filesystem = FileBackend::default();
 
-        assert!(&filesystem.folder_path == "");
+        assert!(&filesystem.folder_path == "./");
         filesystem.init(folder.path.clone());
         assert!(&filesystem.folder_path == &folder.path);
     }
