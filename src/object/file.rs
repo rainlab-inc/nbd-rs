@@ -29,7 +29,7 @@ pub struct FileBackend {
 
 impl Default for FileBackend {
     fn default() -> FileBackend {
-        FileBackend::new(String::from(""))
+        FileBackend::new(String::from("./"))
     }
 }
 
@@ -426,7 +426,7 @@ mod tests {
         dummy_file.write(&[0_u8; 1024]);
         let mut filesystem = FileBackend::default();
 
-        assert!(&filesystem.folder_path == "");
+        assert!(&filesystem.folder_path == "./");
         filesystem.init(folder.path.clone());
         assert!(&filesystem.folder_path == &folder.path);
     }
