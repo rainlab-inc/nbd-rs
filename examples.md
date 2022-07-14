@@ -51,3 +51,20 @@ cache:s3:http://miniotest:miniotest@127.0.0.1:9000/node1,\
 cache:s3:http://miniotest:miniotest@127.0.0.1:9000/node2,\
 cache:s3:http://miniotest:miniotest@127.0.0.1:9000/node3;"
 ```
+
+# Boot alpine
+## Download iso image
+```
+wget "https://dl-cdn.alpinelinux.org/alpine/v3.15/releases/x86_64/alpine-virt-3.15.0-x86_64.iso"
+```
+## Container
+```
+docker build -t dkr.local/nbd-rs:dev .
+docker run -it --rm -p 10809:10809 -v ${ISO_IMAGE_LOCATION}:/opt/nbd -e RUST_BACKTRACE=full dkr.local/nbd-rs:dev --export alpine-image raw file:/opt/nbd/alpine-virt-3.15.0-x86_64.iso
+```
+## Add kvm group
+`sudo adduser $USER kvm`
+
+## Boot VM
+```
+qemu-system-x86_64   -enable-kvm   -machine q35,accel=kvm   -m 2048  -drive file=nbd:127.0.0.1:10809:exportname=alpine-image,format=raw   -display none   -serial mon:stdio
