@@ -156,7 +156,7 @@ cache:s3:http://username:password@${S3_HOST}/node1;"
 -  s3: `s3:http://username:password@${S3_HOST}/bucket`
 -  cache:`cache:s3:http://username:password@${S3_HOST}/bucket`
 
-For more advanced examples please look [examples.md](example.md).
+For more advanced examples please look [examples.md](examples.md).
 
 ## Contributing
 
