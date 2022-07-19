@@ -5,10 +5,10 @@ nbd-rs
 
 ## Why?
 
-Main purpose of this project is to extend the capabilities of NBD Protocol. The same NBD Protocol you know, on steroids. Some of the extended features are:
+Main purpose of this project is to explore possibilities around network block storage, using the capabilities of NBD Protocol, but beyond the capabilities of nbd-server. Some of the extended features are:
 
+  - Pluggable backends (Block: Raw, Sharded, Distributed Object: File, S3)
   - Chainable backends (i.e. Cache, Retry)
-  - Pluggable backends (Block: Raw, Sharded. Object: File, S3)
   - Memory-safety & Race-free NBD Server implementation, thanks to Rust
 
 ## Disclaimer
@@ -21,36 +21,58 @@ If you use alpha level software for your data, you might end up like we did prev
 
 *We're learning Rust, don't judge. Help instead.*
 
-## Roadmap
+## NOT FEATURES
 
-### Done
+* You will lose your data if you rely on this alpha software
+  * Test it, OK
+  * Use it, you will lose your data
 
-* [X] Successfully serve dummy empty file (filled with zeroes), enough to satisfy `qemu-img info`
-* [X] 0.0.1 Serve a raw image read-only from a file
-  * [X] consider mmap
-* [X] 0.0.2 Read/Write access
-* [X] 0.0.3 Storage Backend Abstraction
-* [X] 0.0.4 Sharded File Implementation. Shard image file into 4M chunks (my-image.{n}.chunk)
-* [X] 0.0.5 Object Storage Abstraction
-* [X] 0.0.6 S3 Object Storage
-* [X] 0.0.7 Cache Backend Implementation
+## Features
 
-### v0.1.0 Alpha
+* Ability to serve raw images
+* Ability to serve chunked volumes (a raw image, split into 4MB chunks)
+  * from various (pluggable) backends, currently `file` and `s3` backends are implemented
+* Ability to use chainable backends, like `cache`
+* Ability to distributed chunks to multiple backend storages
 
-* [ ] Known Issues (Fix before `v0.1.0`)
-  * [ ] Fix panic at sudden disconnection
-  * [ ] Fix panic at invalid export name
-* [ ] Performance issues with Cache and S3 driver
+## General Architecture
+
+TODO: Make a graph / drawing
+
+* NBD Server
+* -> serves an export(volume)
+* -> uses a BlockStorage internally
+  * could be a single RAW image (RawStorage)
+  * could be a distributed volume (DistributedStorage)
+* -> uses an ObjectStorage backend (could be chained)
+  * could be a single file (mmap'ed) (FileObjectStorage) 
+    `file:$(pwd)/raw.bin`
+  * could be multiple files for DistributedStorage (FileObjectStorage)
+    `file:$(pwd)/disk1/chunks/`
+  * could be S3 for multiple files (S3ObjectStorage)
+    `s3://minio:minio@localhost:9000/diskbucket/disk1/chunks/`
+  * could use CacheStorage for memory cache (chained to something else above)
+    `cache+s3://minio:minio@localhost:9000/diskbucket/disk1/chunks/`
+
+## Release Notes (TODO: Move out of README, to release notes)
+
+### v0.1.0
+
+* [x] New Features
+  * [x] Distributed Block Storage
+  * [x] Subcommands
+
+* [x] Known Issues (Fix before `v0.1.0`)
+  * [x] Fix panic at sudden disconnection
+  * [x] Fix panic at invalid export name
+* [x] Performance issues with Cache and S3 driver
   * [ ] Need multi-thread write workers (currently only a single extra thread)
 
 ### Backlog
 
-* [ ] Retry Backend Implementation
-* [ ] Trim Support
 * [ ] Transmission Phase Refactor. Move to async/queue
   * currently all commands are executed serially, this severely effects performance
 * [ ] Refactor `NBDSession`. Leverage Interior Mutability. (still learning Rust)
-* [ ] Config/Argument syntax refactor. Consider having a config file as a last resort.
 * [ ] Cache Storage refactor: split memory storage into a separate Object Storage driver
   * this will potentially allow using a file based cache layer (eg. on NVMe)
 
@@ -60,7 +82,8 @@ If you use alpha level software for your data, you might end up like we did prev
 
 Stretch goals
 
-* [ ] Multi-volume support
+* [x] ~~Multi-volume support~~
+  * Consider dynamic volume support? (created on demand)
 * [ ] Multi-connection support
 * [ ] Research Disconnect/Reconnection behavior
 * [ ] Stateless Multi-server support
@@ -68,7 +91,7 @@ Stretch goals
 * [ ] Encryption
 * [ ] Sync and Async Mirrored backends
 * [ ] Erasure coded backend
-* [ ] HTTP backend
+* [ ] HTTP backend (simpler approach to object storage, compared to S3)
 * [ ] Overlay (to overlay backends on top of each other, like using a snapshot)
 
 ## Build
@@ -81,69 +104,59 @@ The executable binary is located at `./target/debug/nbd-rs`.
 
 ## Run
 
-Arguments:
-
-```
-[-e | --export EXPORT_NAME; DRIVER (raw, sharded); (cache)? CONN_STR]...
-  Examples:
-    -e disk0 raw cache:file:/test/
-    -e disk1 sharded cache:file:/test/
-    -e disk2 raw s3:http://username:password@${S3_HOST}/bucket
-    -e disk4 sharded cache:s3:http://username:password@${S3_HOST}/bucket
-```
-
-Examples of export argument:
+### Subcommands
 
 ```sh
-# Single Export (-e | --export), Raw, File, Log Level: DEBUG
-RUST_LOG=debug ./target/debug/nbd-rs --export my_raw_export raw file:/export/path/
-
-# Single Export, Sharded, S3, Log Level: TRACE
-RUST_LOG=trace ./target/debug/nbd-rs -e my_raw_export sharded s3:/export/path/
-
-# Single Export with Cache, Sharded, S3
-./target/debug/nbd-rs -e my_sharded_export sharded cache:s3:http://username:password@${S3_HOST}/path
-
-# Multiple Exports
-./target/debug/nbd-rs -e my_raw_export raw file:/export/path/ -e my_sharded_export sharded s3:http://username:password@${S3_HOST}/path
+nbd-rs init --size <SIZE> <DRIVER> <DRIVER_CFG>
+nbd-rs serve --export <EXPORT> <DRIVER> <DRIVER_CFG>
+nbd-rs destroy <DRIVER> <DRIVER_CFG>
 ```
 
-**NBD-rs will panic if no export has been specified.**
-
-## Container
+### Simple Example
 
 ```sh
-docker build -t dkr.local/nbd-rs:dev .
-fallocate -l 64M image1.raw
-docker run -it --rm -p 10809:10809 -v $(pwd):/opt/nbd -e RUST_BACKTRACE=full dkr.local/nbd-rs:dev --export ${EXPORT_NAME} raw file:/opt/nbd/image1.raw
+nbd-rs init --size 100M raw "file:$(pwd)/raw.bin"
+nbd-rs serve --export mydisk raw "file:$(pwd)/raw.bin"
+nbd-rs destroy raw "file:$(pwd)/raw.bin"
 ```
 
-> See `Run` section for more information on arguments.
-
-## Test
+### Multiple Exports
 
 ```sh
-qemu-img info nbd:localhost:10809:exportname=${EXPORT_NAME}
+nbd-rs init --size 100M raw "file:$(pwd)/raw.bin"
+nbd-rs init --size 200M raw "file:$(pwd)/raw2.bin"
+nbd-rs serve --export disk0 raw "file:$(pwd)/raw.bin" --export disk1 raw "file:$(pwd)/raw2.bin"
+nbd-rs destroy raw "file:$(pwd)/raw.bin"
+nbd-rs destroy raw "file:$(pwd)/raw2.bin"
 ```
 
-Write local image to NBD:
+### Distributed Example
 
 ```sh
-# Connect to drive by reading
-nbd-client -N ${IMAGE_NAME} localhost /dev/nbd0
-
-# Write
-dd if=${LOCAL_IMAGE} of=/dev/nbd0 bs=1M status=progress oflag=sync,direct
-
-# Disconnect
-nbd-client -d /dev/nbd0
+nbd-rs init --size 2G distributed "replicas=3;backends=\
+cache:s3:http://usename:password@${S3_HOST}/node0,\
+cache:s3:http://usename:password@${S3_HOST}/node1;"
 ```
-
-Boot alpine with qemu:
 
 ```sh
-qemu-system-x86_64   -enable-kvm   -machine q35,accel=kvm   -m 2048  -drive file=nbd:127.0.0.1:10809:exportname=${EXPORT_NAME},format=raw   -display gtk   -serial mon:stdio
+nbd-rs serve --export mydisk distributed "replicas=3;backends=\
+cache:s3:http://username:password@${S3_HOST}/node0,\
+cache:s3:http://username:password@${S3_HOST}/node1;"
 ```
+
+```sh
+nbd-rs destroy distributed "replicas=3;backends=\
+cache:s3:http://username:password@${S3_HOST}/node0,\
+cache:s3:http://username:password@${S3_HOST}/node1;"
+```
+
+### Backends
+
+-  file: `file:$(pwd)/raw.bin`
+-  s3: `s3:http://username:password@${S3_HOST}/bucket`
+-  cache:`cache:s3:http://username:password@${S3_HOST}/bucket`
+
+For more advanced examples please look [examples.md](example.md).
 
 ## Contributing
 
@@ -156,3 +169,4 @@ Please see [CONTRIBUTING.md](CONTRIBUTING.md)
 [GPL-3.0](LICENSE)
 
 Copyright 2021, Rainlab Inc. Tokyo and nbd-rs contributors (please see commit history)
+
