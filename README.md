@@ -28,7 +28,7 @@ If you use alpha level software for your data, you might end up like we did prev
   * Use it, you will lose your data
 
 ## Features
-  See [release notes](release-notes.md).
+  See [changelog](CHANGELOG.md).
 * Ability to serve raw images
 * Ability to serve chunked volumes (a raw image, split into 4MB chunks)
   * from various (pluggable) backends, currently `file` and `s3` backends are implemented
