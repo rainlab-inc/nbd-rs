@@ -54,7 +54,6 @@ fn main() {
 
         Some(("serve", sub_matches)) => {
             let export_strs: Vec<&str> = sub_matches.values_of("e").unwrap().collect();
-            println!("{:?}", export_strs);
             assert_eq!(export_strs.len() % 3, 0);
 
             let mut exports = Vec::<Arc<RwLock<NBDExport>>>::new();
