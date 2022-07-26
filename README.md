@@ -75,7 +75,7 @@ nbd-rs destroy <DRIVER> <DRIVER_CFG>
 ### Simple Example
 
 ```sh
-nbd-rs init --size 100M raw "file:$(pwd)/raw.bin"
+nbd-rs init --size 100Mi raw "file:$(pwd)/raw.bin"
 nbd-rs serve --export mydisk raw "file:$(pwd)/raw.bin"
 nbd-rs destroy raw "file:$(pwd)/raw.bin"
 ```
@@ -83,8 +83,8 @@ nbd-rs destroy raw "file:$(pwd)/raw.bin"
 ### Multiple Exports
 
 ```sh
-nbd-rs init --size 100M raw "file:$(pwd)/raw.bin"
-nbd-rs init --size 200M raw "file:$(pwd)/raw2.bin"
+nbd-rs init --size 100Mi raw "file:$(pwd)/raw.bin"
+nbd-rs init --size 200Mi raw "file:$(pwd)/raw2.bin"
 nbd-rs serve --export disk0 raw "file:$(pwd)/raw.bin" --export disk1 raw "file:$(pwd)/raw2.bin"
 nbd-rs destroy raw "file:$(pwd)/raw.bin"
 nbd-rs destroy raw "file:$(pwd)/raw2.bin"
@@ -93,7 +93,7 @@ nbd-rs destroy raw "file:$(pwd)/raw2.bin"
 ### Distributed Example
 
 ```sh
-nbd-rs init --size 2G distributed "replicas=3;backends=\
+nbd-rs init --size 2Gi distributed "replicas=3;backends=\
 cache:s3:http://usename:password@${S3_HOST}/node0,\
 cache:s3:http://usename:password@${S3_HOST}/node1;"
 ```
